@@ -55,7 +55,7 @@ class M_S_D_Dialog(object):
         self.window.destroy()
 
 
-if __name__ == "__main__":
+def main():
     try:
         
         root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -134,3 +134,5 @@ if __name__ == "__main__":
     finally:
         raw_input("Press any key to continue...")
 
+if __name__ == "__main__":
+    main()

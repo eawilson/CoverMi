@@ -1,3 +1,4 @@
+from pkg_resources import resource_string
 import pdb
 import gr
 import subprocess, os, sys, re
@@ -115,8 +116,7 @@ def plot(coverage, panel, outputstem):
                 if "Depth" in panel:
                     f.write(line.encode(start, panel["Depth"], "minimum"))
     
-    with file(os.path.join(os.path.dirname(os.path.abspath(__file__)), "covermiplot.R"), "rU") as f:
-        genericrcode = f.read()
+    genericrcode = resource_string(__name__, "covermiplot.R")
     rscript = outputstem+"R"
     with file(rscript, "wt") as f:
         f.write(genericrcode.replace("INPUT", os.path.abspath(rdataframe)).replace("OUTPUT", os.path.abspath(output_file)).replace("NAME", plotname).replace("\\", "/"))
