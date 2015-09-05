@@ -1,6 +1,8 @@
 #!/usr/bin env python
 import sys, os, time, re, getopt, pdb
-import covermipanel, coverage, technicalreport, clinicalreport, designreport, covermiplot
+from cov import Cov
+from panel import Panel
+import technicalreport, clinicalreport, designreport, covermiplot
 
 
 class CoverMiException(Exception):
@@ -37,7 +39,7 @@ def create_output_dir(output_path):
 
 def covermi_main(panel_path, bam_path, output_path, depth=None):
 
-    panel = covermipanel.load(panel_path, bam_path=="")
+    panel = Panel.identify(panel_path).load(bam_path=="")
     if depth is not None:
         panel["Depth"] = int(depth)
     output_path = create_output_dir(output_path)
@@ -69,10 +71,10 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             output_stems.add(output_stem)
 
             if "Amplicons" in panel:
-                cov = coverage.load_bam_amplicons(bam_file, panel["Amplicons"])
+                cov = Cov.load_bam(bam_file, panel["Amplicons"], amplicons=True)
                 technicalreport.create(cov.amplicon_data, panel, os.path.join(technical_report_path, output_stem))
             else:
-                cov = coverage.load_bam_exons(bam_file, panel["Exons"])
+                cov = Cov.load_bam(bam_file, panel["Exons"], amplicons=False)
 
             clinicalreport.create(cov, panel, os.path.join(clinical_report_path, output_stem))
             covermiplot.plot(cov, panel, os.path.join(clinical_report_path, output_stem))
@@ -81,7 +83,7 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             print"file {0} of {1} completed in {2}".format(len(output_stems), len(bam_file_list), time_string)
 
     else:
-        cov = coverage.perfect_coverage(panel["Amplicons"])
+        cov = Cov.perfect_coverage(panel["Amplicons"])
         designreport.create(cov, panel, os.path.join(output_path, panel["Filenames"]["Panel"]))
         covermiplot.plot(cov, panel, os.path.join(output_path, panel["Filenames"]["Panel"]))
 

@@ -1,83 +1,5 @@
 import time, pdb
 
-def _rjust(s, l):
-    return s.rjust(l, " ")
-
-def _ljust(s, l):
-    return s.ljust(l, " ")
-
-
-
-class Table(list):
-    rows = [] 
-    headers = []
-
-    def align(self):
-        justify = []
-        columns = len(self.rows[0])
-        for col in range(0, columns):
-            justify.append(_ljust if (type(self.rows[0][col])==str) else _rjust)
-        for col in range(0, columns):
-            biggest = 0
-            for row in range(0, len(self.rows)):
-                self.rows[row][col] = self.format[col].format(self.rows[row][col])
-                biggest = max(biggest, len(self.rows[row][col]))
-            for row in range(0, len(self.rows)):
-                self.rows[row][col] = justify[col](self.rows[row][col], biggest)
-
-        if len(self.headers) > 0:
-            for col in range(0, columns):     
-                biggest = max([len(self.headers[row][col]) for row in range(0, len(self.headers))] + [len(self.rows[0][col])])
-                for row in range(0, len(self.headers)):
-                    self.headers[row][col] = self.headers[row][col].ljust(biggest, " ")
-                for row in range(0, len(self.rows)):
-                    self.rows[row][col] = self.rows[row][col].ljust(biggest, " ")
-            seperator = "  "     
-            output = [seperator.join(row)+"\n" for row in self.headers]
-            output += "-"*(len(output[0])-1)+"\n"
-        else:
-            seperator = ""
-            output = []
-
-        return output + [seperator.join(row)+"\n" for row in self.rows]
-
-def align(table):
-    #pdb.set_trace()
-    columns = len(table[0])
-    rows = len(table)
-    newtab = [[] for n in range(0, rows)]
-
-    for col in range(0, columns):
-        if type(table[0][col]) == list:
-           replacement = align([table[row][col] for row in range(0, rows)])
-           for row in range(0, rows):
-               newtab[row].append("".join(replacement[row]))
-        else:
-            if type(table[0][col]) == tuple:
-                fstring = table[0][col][1]
-                for row in range(0, rows):
-                    table[row][col] = table[row][col][0]
-            else:
-                fstring = "{}"
-
-            biggest = max([len(fstring.format(table[row][col])) for row in range(0, rows)])
-            for row in range(0, rows):
-                isstring = (type(table[row][col])==str)
-                newtab[row].append(fstring.format(table[row][col]).ljust(biggest) if isstring else fstring.format(table[row][col]).rjust(biggest))
-    return newtab
-
-
-def formattable(header, table, sep=""):
-    #pdb.set_trace()
-    table = align(table)
-    table = [sep.join(row)+"\n" for row in align(header + table)]
-    table = table[0:len(header)] + [("-"*(len(table[0])-1))+"\n"] + table[len(header):]
-    return table
-
-
-def formattext(text, sep=""):
-    return [sep.join(row)+"\n" for row in align(text)]
-
 
 class TextTable(object):
 
@@ -85,15 +7,15 @@ class TextTable(object):
         self.rows = []
         self.headers = []
 
-    @staticmethod
-    def _aligned(table):
+    @classmethod
+    def _aligned(cls, table):
         columns = len(table[0])
         rows = len(table)
         newtab = [[] for n in range(0, rows)]
 
         for col in range(0, columns):
             if type(table[0][col]) == list:
-                replacement = TextTable._aligned([table[row][col] for row in range(0, rows)])
+                replacement = cls._aligned([table[row][col] for row in range(0, rows)])
                 for row in range(0, rows):
                     newtab[row].append("".join(replacement[row]))
             else:
@@ -119,9 +41,9 @@ class TextTable(object):
             for row in range(0, len(self.rows)):
                 self.rows[row] = [item[0:38]+".." if (type(item)==str and len(item)>40) else item for item in self.rows[row]]
 
-        self.rows = TextTable._aligned(self.rows)
+        self.rows = type(self)._aligned(self.rows)
         if len(self.headers) > 0:
-            table = [sep.join(row)+"\n" for row in TextTable._aligned(self.headers + self.rows)]
+            table = [sep.join(row)+"\n" for row in type(self)._aligned(self.headers + self.rows)]
             table = table[0:len(self.headers)] + [("-"*(len(table[0])-1))+"\n"] + table[len(self.headers):]
         else:
             table = [sep.join(row)+"\n" for row in self.rows]

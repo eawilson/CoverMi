@@ -1,6 +1,7 @@
 #!/usr/bin env python
 import sys, os, tkFileDialog, Tkinter, pdb, traceback
 import covermimain
+from panel import Panel
 
 try:
     input = raw_input
@@ -74,7 +75,7 @@ def main():
             sys.exit()
         print("{0} panel selected".format(os.path.basename(panelpath)))
 
-        path = covermimain.covermipanel.identify(panelpath)
+        path = Panel.identify(panelpath)
         if "Depth" in path:
             depthpath = path["Depth"]
             with file(depthpath, "rU") as f:

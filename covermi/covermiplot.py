@@ -1,6 +1,6 @@
 from pkg_resources import resource_string
 import pdb
-import gr
+from gr import Gr
 import subprocess, os, sys, re
 
 r_path = "unknown"
@@ -21,6 +21,7 @@ class _Encode(object):
 
 
 def plot(coverage, panel, outputstem):
+    
     global r_path
     if r_path == "unknown":
         if os.name ==  "nt":
@@ -55,21 +56,21 @@ def plot(coverage, panel, outputstem):
         f.write(s.format("x", "y", "name", "component", "strand", "adjustment"))
 
         for entry in panel["Transcripts"].all_entries:
-                gr1 = gr.new(entry)
+                gr1 = Gr(entry)
 
                 if "Amplicons" in panel:
                     gr1, amplicons = gr1.extended_to_include_touching_amplicons(panel["Amplicons"])
                 else:
-                    amplicons = gr.new()
+                    amplicons = Gr()
                 auc = 0
                 for amplicon in amplicons.all_entries:
-                    auc += amplicon[gr.STOP] - amplicon[gr.START] + 1                
+                    auc += amplicon[Gr.STOP] - amplicon[Gr.START] + 1                
                 INTRON_SIZE = auc / amplicons.number_of_components if (amplicons.number_of_components>0) else 200
 
                 chrom, start, stop, name, strand = gr1.values()[0][0][0:5]
 
-
-                exons = panel["Exons"].touched_by(gr1).subset2(name) if ("Exons" in panel) else gr.new()
+                
+                exons = panel["Exons"].touched_by(gr1).subset2(name, genenames=True) if ("Exons" in panel) else Gr()
 
                 blocks = amplicons.combined_with(exons).merged
                 # adj = [start, stop, fixed subtraction, scaling factor]
@@ -77,8 +78,8 @@ def plot(coverage, panel, outputstem):
                 end_of_prev_block = start-2
                 fixed_total = 0
                 for bentry in blocks.all_entries:
-                    bstart = bentry[gr.START]
-                    bstop = bentry[gr.STOP]
+                    bstart = bentry[Gr.START]
+                    bstop = bentry[Gr.STOP]
                     intron_size = bstart - end_of_prev_block - 1
                     adj.append((end_of_prev_block+1, bstart-1, fixed_total, max(float(intron_size)/INTRON_SIZE, 1)))
                     fixed_total += max(intron_size - INTRON_SIZE, 0)
@@ -90,7 +91,7 @@ def plot(coverage, panel, outputstem):
 
                 if "Amplicons" in panel:
                     for aentry in amplicons.all_entries:
-                        f.write(line.encode(aentry[gr.START], aentry[gr.STOP], "amplicon"))
+                        f.write(line.encode(aentry[Gr.START], aentry[Gr.STOP], "amplicon"))
                    
                 f.write(line.encode(start-1, 0, "coverage"))
                 for cstart, cstop, cdepth in coverage[chrom]:
@@ -104,14 +105,14 @@ def plot(coverage, panel, outputstem):
 
                 if "Exons" in panel:
                     for eentry in exons.all_entries:
-                        f.write(line.encode(eentry[gr.START], eentry[gr.STOP], "exon"))
-                        f.write(line.encode((eentry[gr.START]+eentry[gr.STOP])/2, str(eentry[gr.NAME2]), "exon_number"))
+                        f.write(line.encode(eentry[Gr.START], eentry[Gr.STOP], "exon"))
+                        f.write(line.encode((eentry[Gr.START]+eentry[Gr.STOP])/2, str(eentry[Gr.NAME2]), "exon_number"))
         
                 if "Variants_Mutation" in panel:
                     variants = gr1.overlapped_by(panel["Variants_Mutation"])
                     vycoord = panel["Depth"] if ("Depth" in panel) else 0
                     for ventry in variants.all_entries:
-                            f.write(line.encode((ventry[gr.START]+ventry[gr.STOP])/2, vycoord, "variants"))
+                            f.write(line.encode((ventry[Gr.START]+ventry[Gr.STOP])/2, vycoord, "variants"))
         
                 if "Depth" in panel:
                     f.write(line.encode(start, panel["Depth"], "minimum"))

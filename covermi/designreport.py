@@ -1,6 +1,6 @@
 from reportfunctions import TextTable, header, location
 import pdb
-import gr
+from gr import Gr
 
 def create(coverage, panel, outputstem):
 
@@ -77,43 +77,43 @@ def create(coverage, panel, outputstem):
         table = TextTable()
         table.headers.append(["Amplicons Not Covering", "Location"])
         table.headers.append(["a Panel Gene", ""])
-        for chr_name in gr.KARYOTYPE:
+        for chr_name in Gr.KARYOTYPE:
             if chr_name in rogue_amplicons:
                 for entry in rogue_amplicons[chr_name]:
-                    table.rows.append([entry[gr.NAME], location(gr.new(entry), panel)])
+                    table.rows.append([entry[Gr.NAME], location(Gr(entry), panel)])
         report += ["\n\n"] + table.formated(sep="  ")
 
     if "Excluded" in panel:
         table = TextTable()
         table.headers.append(["Excluded Amplicons", "Location"])
         excluded_amplicons = panel["AllAmplicons"].subset2(panel["Excluded"])
-        for chr_name in gr.KARYOTYPE:
+        for chr_name in Gr.KARYOTYPE:
             if chr_name in excluded_amplicons:
                 for entry in excluded_amplicons[chr_name]:
-                    table.rows.append([entry[gr.NAME], location(gr.new(entry), panel)])
+                    table.rows.append([entry[Gr.NAME], location(Gr(entry), panel)])
         report += ["\n\n"] + table.formated(sep="  ")
 
     table = TextTable()
     table.headers.append(["Exon", "Upstream Padding", "Downstream Padding"])
     for chr_name in panel["Transcripts"]:
         for transcript in panel["Transcripts"][chr_name]:
-            exons = panel["Exons"].touched_by(gr.new(transcript)).subset2(transcript[gr.NAME])
-            amplicons = panel["Amplicons"].touched_by(gr.new(transcript)).merged
-            loopover = range(0, len(exons[chr_name])) if (transcript[gr.STRAND]=="+") else range(len(exons[chr_name])-1, -1, -1)
+            exons = panel["Exons"].touched_by(Gr(transcript)).subset2(transcript[Gr.NAME])
+            amplicons = panel["Amplicons"].touched_by(Gr(transcript)).merged
+            loopover = range(0, len(exons[chr_name])) if (transcript[Gr.STRAND]=="+") else range(len(exons[chr_name])-1, -1, -1)
             for index in loopover:
-                touching_amplicons = amplicons.touched_by(gr.new(exons[chr_name][index]))
+                touching_amplicons = amplicons.touched_by(Gr(exons[chr_name][index]))
                 if len(touching_amplicons) == 0:
                     continue
-                prev_stop = exons[chr_name][index-1][gr.STOP] if (index>0) else 0
-                next_start = exons[chr_name][index+1][gr.START] if (index<len(exons[chr_name])-1) else gr.MAX_CHR_LENGTH
-                prev_amp = touching_amplicons[chr_name][0][gr.START]
-                next_amp = touching_amplicons[chr_name][-1][gr.STOP]
-                padding = [ exons[chr_name][index][gr.START]-max(prev_amp, prev_stop)+gr.SPLICE_SITE_BUFFER,
-                            min(next_amp, next_start)-exons[chr_name][index][gr.STOP]+gr.SPLICE_SITE_BUFFER ]
+                prev_stop = exons[chr_name][index-1][Gr.STOP] if (index>0) else 0
+                next_start = exons[chr_name][index+1][Gr.START] if (index<len(exons[chr_name])-1) else Gr.MAX_CHR_LENGTH
+                prev_amp = touching_amplicons[chr_name][0][Gr.START]
+                next_amp = touching_amplicons[chr_name][-1][Gr.STOP]
+                padding = [ exons[chr_name][index][Gr.START]-max(prev_amp, prev_stop)+Gr.SPLICE_SITE_BUFFER,
+                            min(next_amp, next_start)-exons[chr_name][index][Gr.STOP]+Gr.SPLICE_SITE_BUFFER ]
                 
-                table.rows.append([gr.new(exons[chr_name][index]).names_as_string,
-                                   padding[transcript[gr.STRAND] == "-"] if (padding[transcript[gr.STRAND] == "-"]>0) else "",
-                                   padding[transcript[gr.STRAND] == "+"] if (padding[transcript[gr.STRAND] == "+"]>0) else ""])
+                table.rows.append([Gr(exons[chr_name][index]).names_as_string,
+                                   padding[transcript[Gr.STRAND] == "-"] if (padding[transcript[Gr.STRAND] == "-"]>0) else "",
+                                   padding[transcript[Gr.STRAND] == "+"] if (padding[transcript[Gr.STRAND] == "+"]>0) else ""])
     report += ["\n\n"] + table.formated(sep="  ")
 
     with file(outputstem+"_covermi_design_report.txt", "wt") as f:

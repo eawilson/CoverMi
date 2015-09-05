@@ -10,6 +10,6 @@ setup(name="covermi",
     packages=["covermi"],
     include_package_data=True,
     zip_safe=True,
-    entry_points={"console_scripts" : ["covermi=covermigui:main"]}
+    entry_points={"console_scripts" : ["covermi=covermi.covermigui:main"]}
 )
 

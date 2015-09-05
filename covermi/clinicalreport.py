@@ -1,5 +1,5 @@
 from reportfunctions import TextTable, header
-import gr
+from gr import Gr
 
 
 def create(coverage, panel, outputstem):
@@ -62,10 +62,10 @@ def create(coverage, panel, outputstem):
         table.headers.append(["", "", "", "", "Mutations in Gene", ""])
         weighted_mutations_per_gene = {}
         for entry in panel["Variants_Mutation"].all_entries:
-            gene = entry[gr.NAME].split()[0]
+            gene = entry[Gr.NAME].split()[0]
             if gene not in weighted_mutations_per_gene:
                 weighted_mutations_per_gene[gene] = 0
-            weighted_mutations_per_gene[gene] += entry[gr.WEIGHT]
+            weighted_mutations_per_gene[gene] += entry[Gr.WEIGHT]
         for i in coverage.calculate(panel["Variants_Mutation"].subranges_covered_by(targeted_range), minimum_depth):
             if i.incompletely_covered:
                 table.rows.append([i.name.split()[0],
