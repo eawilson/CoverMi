@@ -2,27 +2,12 @@
 import sys, os, time, re, getopt, pdb
 from cov import Cov
 from panel import Panel
+from files import Files
 import technicalreport, clinicalreport, designreport, covermiplot
 
 
 class CoverMiException(Exception):
     pass
-
-
-def identify_bam_files(bam_path):
-    bam_file_list = []
-    if os.path.isfile(bam_path) and bam_path.endswith(".bam"):
-        bam_file_list.append(bam_path)
-    elif not os.path.isdir(bam_path):
-        raise CoverMiException("'{0}' is not a bam file or a directory".format(bam_path))
-    else:
-        for root, dirnames, filenames in os.walk(bam_path):
-            for filename in filenames:
-                if filename.endswith(".bam"):
-                    bam_file_list.append(os.path.join(root, filename))
-    if len(bam_file_list) == 0:
-        raise CoverMiException("No bam files found at '{0}'".format(bam_path))
-    return bam_file_list
 
 
 def create_output_dir(output_path):
@@ -46,7 +31,7 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
     print "Processing..."
 
     if bam_path != "":
-        bam_file_list = identify_bam_files(bam_path)
+        bam_file_list = Files(bam_path, ".bam")
         if len(bam_file_list) == 1:
             clinical_report_path = output_path
             technical_report_path = output_path
@@ -57,11 +42,10 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             os.mkdir(technical_report_path)
 
         output_stems = set([])
-        for bam_file in bam_file_list:
+        for identifier, path in bam_file_list.items():
             start_time = time.time()
-            print bam_file
-            panel["Filenames"]["Sample"] = os.path.basename(bam_file).split("_")[0]
-            panel["Filenames"]["Run"] = os.path.basename(os.path.dirname(bam_file))
+            panel["Filenames"]["Run"], panel["Filenames"]["Sample"] = identifier
+            print "{0}/{1}".format(panel["Filenames"]["Run"], panel["Filenames"]["Sample"])
 
             output_stem = panel["Filenames"]["Sample"]
             dup_num = 1
@@ -71,10 +55,10 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             output_stems.add(output_stem)
 
             if "Amplicons" in panel:
-                cov = Cov.load_bam(bam_file, panel["Amplicons"], amplicons=True)
-                technicalreport.create(cov.amplicon_data, panel, os.path.join(technical_report_path, output_stem))
+                cov = Cov.load_bam(path, panel["Amplicons"], amplicons=True)
+                technicalreport.create(cov.amplicon_info, panel, os.path.join(technical_report_path, output_stem))
             else:
-                cov = Cov.load_bam(bam_file, panel["Exons"], amplicons=False)
+                cov = Cov.load_bam(path, panel["Exons"], amplicons=False)
 
             clinicalreport.create(cov, panel, os.path.join(clinical_report_path, output_stem))
             covermiplot.plot(cov, panel, os.path.join(clinical_report_path, output_stem))

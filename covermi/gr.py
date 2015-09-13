@@ -72,12 +72,13 @@ class Gr(dict):
 
 
     @classmethod
-    def load_manifest(genomicrange, path, excluded=[]):
+    def load_manifest(genomicrange, path, excluded=[], ontarget=True):
         with file(path, "rU") as f:
             gr1 = genomicrange()
             section = "Header"
             skip_column_names = False
             probes = {}
+            rename_offtarget = {}
 
             for line in f:
                 splitline = line.rstrip("\n").split("\t")
@@ -94,8 +95,12 @@ class Gr(dict):
                     probes[splitline[2]] = (len(splitline[9]), len(splitline[11]))
 
                 elif section == "Targets":
-                    amplicon_name = "{0}:{1}-{2}".format(splitline[3], splitline[4], splitline[5])
-                    if amplicon_name not in excluded and splitline[2] == "1":
+                    if splitline[2] == "1":
+                        amplicon_name = "{0}:{1}-{2}".format(splitline[3], splitline[4], splitline[5])
+                        rename_offtarget[splitline[0]] = amplicon_name
+                    else:
+                        amplicon_name = rename_offtarget[splitline[0]]
+                    if amplicon_name not in excluded and (splitline[2] == "1")==ontarget:
                         gr1.construct( [splitline[3],
                             int(splitline[4])+probes[splitline[0]][splitline[6]=="+"],
                             int(splitline[5])-probes[splitline[0]][splitline[6]=="-"],

@@ -152,8 +152,8 @@ class Cov(dict):
         bedfile_temp.close()
 
         cov = coverage._firstpass_into_coverage(firstpass)
-        cov.amplicon_data = amplicon_metrics.values()
-        cov.amplicon_data.sort(key=coverage._amplicon_number)
+        cov.amplicon_info = amplicon_metrics.values()
+        cov.amplicon_info.sort(key=coverage._amplicon_number)
         return cov
 
 
