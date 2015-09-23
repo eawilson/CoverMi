@@ -4,9 +4,9 @@ CoverMi provides coverage checking for next generation sequencing data. It has b
 
 ## Requirements
 
-Python 2.7.10
-Bedtools >= 2.22  (Installed under Cygwin if using Windows)
-R >= 3.1.2        (Optional, used for graphing)
+* Python 2.7.10
+* Bedtools >= 2.22  (Installed under Cygwin if using Windows)
+* R >= 3.1.2        (Optional, used for graphing)
 
 ## Installation
 
@@ -16,11 +16,11 @@ pip install covermi
 
 In order to perform the necessary analysis CoverMi needs access to a collection of files that detail the NGS panel being analysed. All the files that make up each panel are placed inside a directory that is named after the panel in question. The names of the files are unimportant as their identity is determined from the structure of the file contents. The following list details the different files that make up a panel. Other than for the reference genome all files are optional, however the more detailed the panel information provided the more detailed the report will be.
 
-*refFlat.txt file detailing the hg19 (GRCh37) human genome, downloadable from [UCSC](https://genome.ucsc.edu/).
-*Illumina Manifest file or Illumina DesignStudio bedfile.
-*List of genes/transcripts over which coverage is to be measured. This is a text file with each line containing either gene name or gene name<space>transcript name. If the transcript is not specified then the canonical transcript will be selected unless this is unknown, in which case all transcripts are selected.
-*List of canonical transcripts generated from the knownCanonical.txt and kgXref.txt files (both downloadable from UCSC) by running covermi_make_canonical.
-*Known variants file. This is a nine column tsv text file with an optional header row. The format is unused<tab>disease<tab>unused<tab>gene<tab>chromosome<tab>start<tab>stop<tab>unused<tab>mutation. Variant lists of this format can be downloaded from [HGMD](http://www.hgmd.cf.ac.uk) or can be created from the CosmicMutantExport tsv file downloaded from [COSMIC](http://cancer.sanger.ac.uk/cosmic) with the cosmic2variants script.
+* refFlat.txt file detailing the hg19 (GRCh37) human genome, downloadable from [UCSC](https://genome.ucsc.edu/).
+* Illumina Manifest file or Illumina DesignStudio bedfile.
+* List of genes/transcripts over which coverage is to be measured. This is a text file with each line containing either gene name or gene name<space>transcript name. If the transcript is not specified then the canonical transcript will be selected unless this is unknown, in which case all transcripts are selected.
+* List of canonical transcripts generated from the knownCanonical.txt and kgXref.txt files (both downloadable from UCSC) by running covermi_make_canonical.
+* Known variants file. This is a nine column tsv text file with an optional header row. The format is unused<tab>disease<tab>unused<tab>gene<tab>chromosome<tab>start<tab>stop<tab>unused<tab>mutation. Variant lists of this format can be downloaded from [HGMD](http://www.hgmd.cf.ac.uk) or can be created from the CosmicMutantExport tsv file downloaded from [COSMIC](http://cancer.sanger.ac.uk/cosmic) with the cosmic2variants script.
 
 Covermi is started from the command line with the command covermi and asks the user to select the panel to be used and  either a single bam file or a directory of bam files to be analysed. The name of the bam file (minus anything following a trailing underscore) is taken as the sample name and the containing directory is taken as the run name.
 
