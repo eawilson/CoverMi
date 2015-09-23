@@ -3,7 +3,9 @@ from reportfunctions import TextTable, header, location
 
 def create(info, panel, outputstem):
 
-    minimum_depth = panel["Depth"]
+    if "Depth" not in panel["Options"]:
+        return
+    minimum_depth = panel["Options"]["Depth"]
 
     with file(outputstem+"_amplicon_data.tsv", "wt") as f:
         template = "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\n"
@@ -29,7 +31,7 @@ def create(info, panel, outputstem):
         if i.minimum_depth < minimum_depth:
             table.rows.append([i.name, location(i.gr, panel), i.gr.locations_as_string, i.f_depth, i.r_depth])
     if len(table.rows) > 0:
-        report += ["\n", "The following amplicons failed to provide adequate coverage\n\n"] + table.formated(sep="   ")
+        report += ["\n\n", "The following amplicons failed to provide adequate coverage\n"] + table.formated(sep="   ")
  
     table = TextTable()
     table.headers.append(["Amplicon", "Gene", "Location", "Forward", "Reverse", "Ratio"])
@@ -38,7 +40,7 @@ def create(info, panel, outputstem):
         if  i.ratio < 0.7 and i.maximum_depth > minimum_depth:
             table.rows.append([i.name, location(i.gr, panel), i.gr.locations_as_string, i.f_depth, i.r_depth, (i.ratio, "{:.2f}")])
     if len(table.rows) > 0:
-        report += ["\n", "The following amplicons had an abnormal forward:reverse depth ratio (<0.7)\n\n"] + table.formated(sep="   ")
+        report += ["\n\n", "The following amplicons had an abnormal forward:reverse depth ratio (<0.7)\n"] + table.formated(sep="   ")
     
     with file(outputstem+"_covermi_technical_report.txt", "wt") as f:
         f.writelines(report)

@@ -70,7 +70,7 @@ def plot(coverage, panel, outputstem):
                 chrom, start, stop, name, strand = gr1.values()[0][0][0:5]
 
                 
-                exons = panel["Exons"].touched_by(gr1).subset2(name, genenames=True) if ("Exons" in panel) else Gr()
+                exons = panel["Exons"].touched_by(gr1).subset2(name) if ("Exons" in panel) else Gr()
 
                 blocks = amplicons.combined_with(exons).merged
                 # adj = [start, stop, fixed subtraction, scaling factor]
@@ -110,12 +110,12 @@ def plot(coverage, panel, outputstem):
         
                 if "Variants_Mutation" in panel:
                     variants = gr1.overlapped_by(panel["Variants_Mutation"])
-                    vycoord = panel["Depth"] if ("Depth" in panel) else 0
+                    vycoord = panel["Options"]["Depth"] if ("Depth" in panel["Options"]) else 0
                     for ventry in variants.all_entries:
                             f.write(line.encode((ventry[Gr.START]+ventry[Gr.STOP])/2, vycoord, "variants"))
         
-                if "Depth" in panel:
-                    f.write(line.encode(start, panel["Depth"], "minimum"))
+                if "Depth" in panel["Options"]:
+                    f.write(line.encode(start, panel["Options"]["Depth"], "minimum"))
     
     genericrcode = resource_string(__name__, "covermiplot.R")
     rscript = outputstem+"R"

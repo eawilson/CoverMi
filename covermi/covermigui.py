@@ -3,14 +3,6 @@ import sys, os, tkFileDialog, Tkinter, pdb, traceback
 import covermimain
 from panel import Panel
 
-try:
-    input = raw_input
-except NameError:
-    pass
-
-class CoverMiException(Exception):
-    pass
-        
 
 class DepthDialog(object):
     def __init__(self, parent, default_depth):
@@ -42,7 +34,6 @@ class M_S_D_Dialog(object):
         Tkinter.Button(self.window, text="Single bam file", width=15, command=self.single_pressed).grid(column=1, row=1, pady=10)
         Tkinter.Button(self.window, text="Review panel design", width=15, command=self.design_pressed).grid(column=2, row=1, pady=10)
 
-
     def single_pressed(self):
         self.parent.msd = "single"
         self.window.destroy()
@@ -53,6 +44,25 @@ class M_S_D_Dialog(object):
 
     def design_pressed(self):
         self.parent.msd = "design"
+        self.window.destroy()
+
+
+class SomCon_Dialog(object):
+    def __init__(self, parent):
+        self.parent = parent
+        self.parent.somcon = ""
+        self.window = Tkinter.Toplevel(self.parent)
+        self.window.title("CoverMi")
+        Tkinter.Label(self.window, text="Is this a somatic or constitutional panel?").grid(column=0, row=0, columnspan=2, padx=10, pady=5)
+        Tkinter.Button(self.window, text="Somatic", width=15, command=self.som_pressed).grid(column=0, row=1, pady=10, padx=10)
+        Tkinter.Button(self.window, text="Constitutional", width=15, command=self.con_pressed).grid(column=1, row=1, pady=10, padx=10)
+
+    def som_pressed(self):
+        self.parent.somcon = "Somatic"
+        self.window.destroy()
+
+    def con_pressed(self):
+        self.parent.somcon = "Constitutional"
         self.window.destroy()
 
 
@@ -75,25 +85,22 @@ def main():
             sys.exit()
         print("{0} panel selected".format(os.path.basename(panelpath)))
 
-        path = Panel.identify(panelpath)
-        if "Depth" in path:
-            depthpath = path["Depth"]
-            with file(depthpath, "rU") as f:
-                default_depth = f.readline().strip()
-        else:
-            depthpath = os.path.join(panelpath, "depth")
-            if os.path.lexists(depthpath):
-                raise CoverMiException("File '{0}' exists but is of incorrect format".format(depthpath))
-            default_depth = ""
-        rootwindow.wait_window(DepthDialog(rootwindow, default_depth).window)
-        depth = rootwindow.depth
-        if depth == "":
+        panel = Panel(panelpath)
+        options = panel.read_options()
+        rootwindow.wait_window(DepthDialog(rootwindow, str(options["Depth"]) if ("Depth" in options) else "").window)
+        if rootwindow.depth == "":
             sys.exit()
-        if depth != default_depth:
-            with file(depthpath, "wt") as f:
-                f.write("{0}\n".format(depth))
-        print("Depth {0} selected".format(depth))
-        depth = int(depth)
+        options["Depth"] = int(rootwindow.depth)
+        print("Depth {0} selected".format(options["Depth"]))
+
+        if "ReportType" not in options:
+            print("Is this a somatic or constitutional panel?")
+            rootwindow.wait_window(SomCon_Dialog(rootwindow).window)    
+            if rootwindow.somcon == "":
+                sys.exit()
+            options["ReportType"] = rootwindow.somcon
+
+        panel.write_options(options)
 
         print("Do you wish to coverage check multiple bams, a single bam or review the panel design?")
         rootwindow.wait_window(M_S_D_Dialog(rootwindow).window)    

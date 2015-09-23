@@ -24,9 +24,9 @@ def create_output_dir(output_path):
 
 def covermi_main(panel_path, bam_path, output_path, depth=None):
 
-    panel = Panel.identify(panel_path).load(bam_path=="")
+    panel = Panel(panel_path).load(bam_path=="")
     if depth is not None:
-        panel["Depth"] = int(depth)
+        panel["Options"]["Depth"] = int(depth)
     output_path = create_output_dir(output_path)
     print "Processing..."
 
@@ -42,9 +42,8 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             os.mkdir(technical_report_path)
 
         output_stems = set([])
-        for identifier, path in bam_file_list.items():
+        for panel["Filenames"]["Run"], panel["Filenames"]["Sample"], path in bam_file_list:
             start_time = time.time()
-            panel["Filenames"]["Run"], panel["Filenames"]["Sample"] = identifier
             print "{0}/{1}".format(panel["Filenames"]["Run"], panel["Filenames"]["Sample"])
 
             output_stem = panel["Filenames"]["Sample"]

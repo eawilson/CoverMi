@@ -10,6 +10,9 @@ setup(name="covermi",
     packages=["covermi"],
     include_package_data=True,
     zip_safe=True,
-    entry_points={"console_scripts" : ["covermi=covermi.covermigui:main"]}
+    entry_points={"console_scripts" : ["covermi=covermi.covermigui:main", 
+                                       "covermi_make_canonical=covermi.scripts.make_canonical:main",
+                                       "bringmiup=covermi.bringmiup:main",
+                                       "cosmic2variants=covermi.cosmic2variants:main"]}
 )
 

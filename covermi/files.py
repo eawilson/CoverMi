@@ -1,10 +1,11 @@
 import os, pdb
 
 
+class CoverMiException(Exception):
+    pass
 
 
-
-class Files(dict):
+class Files(list):
 
     def __init__(self, path, ext, strip_trailing_underscore=True):
 
@@ -15,10 +16,10 @@ class Files(dict):
             run = os.path.basename(run)
             sample, ex = os.path.splitext(sample)
             if ex != ext:
-                raise RuntimeError, "CoverMi - file "+path+" is not of type "+ext
+                raise CoverMiException("file "+path+" is not of type "+ext)
             if self._strip_trailing_underscore:
                 sample = sample.split("_")[0]
-            self[(run, sample)] = path
+            self.append((run, sample, path))
 
         elif os.path.isdir(path): 
             if not hasattr(ext, "__iter__"):
@@ -38,12 +39,11 @@ class Files(dict):
                 self._walk_runs(path, ext[0])
 
             for ex in ext[1:len(ext)]:
-                files = type(self)(path, ex, self._strip_trailing_underscore)
-                if self != files:
-                    raise RuntimeError, "CoverMi - "+ext[0]+" and "+ex+" files do not match"
+                if self != type(self)(path, ex, self._strip_trailing_underscore):
+                    raise CoverMiException(ext[0]+" and "+ex+" files do not match")#?Too strict
 
         else:
-            raise RuntimeError, "CoverMi - "+path+" is not a file or directory"
+            raise CoverMiException(path+" is not a file or directory")
 
 
     def _walk_runs(self, path, ext):
@@ -54,16 +54,17 @@ class Files(dict):
 
 
     def _walk_samples(self, path, ext):
+        found = set([])
         run = os.path.basename(path)
         for root, dirnames, filenames in os.walk(path):
             for filename in filenames:
                 filename, extension = os.path.splitext(filename)
                 if extension == ext:
                     sample = filename.split("_")[0] if self._strip_trailing_underscore else filename
-                    identifier = (run, sample)
-                    if identifier in self:
-                        raise RuntimeError,  "CoverMi - Sample "+sample+" duplicated in run "+run
-                    self[identifier] = os.path.join(root, filename)
+                    if (run, sample) in found:
+                        raise CoverMiException("Sample "+sample+" duplicated in run "+run)
+                    found.add((run, sample))
+                    self.append((run, sample, os.path.join(root, filename)))
 
 
 

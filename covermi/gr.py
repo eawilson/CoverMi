@@ -115,11 +115,11 @@ class Gr(dict):
     @classmethod
     def load_refflat(genomicrange, path, genes_of_interest, canonical_transcripts):
         canonicaldict = {}
-        if canonical_transcripts != "": 
+        if canonical_transcripts != "":
             with file(canonical_transcripts, "rU") as f:
                 for line in f:
-                    gene, transcript = line.rstrip().split("\t")
-                    canonicaldict[gene] = transcript.split()[1]
+                    gene, transcript = line.strip().split("\t")
+                    canonicaldict[gene] = transcript if len(transcript.split(" "))==1 else transcript.split(" ")[1]
 
         needed = set([])
         doublecheck = {}
@@ -187,22 +187,22 @@ class Gr(dict):
         for gr in (exons, transcripts):
             gr.sort()
 
-        #simplify gene names
-        names = {}
-        duplicates = set([])
-        for entry in gr.all_entries:
-            gene, transcript = entry[genomicrange.NAME].split(" ")[0:2]
-            if gene in names and names[gene] != transcript:
-                duplicates.add(gene)
-            else:
-                names[gene] = transcript
-        for entry in gr.all_entries:
-            splitgene = entry[genomicrange.NAME].split(" ")
-            if splitgene[0] not in duplicates:
-                if len(splitgene) <= 2:
-                    entry[genomicrange.NAME] = splitgene[0]
+            #simplify gene names
+            names = {}
+            duplicates = set([])
+            for entry in gr.all_entries:
+                gene, transcript = entry[genomicrange.NAME].split(" ")[0:2]
+                if gene in names and names[gene] != transcript:
+                    duplicates.add(gene)
                 else:
-                    entry[genomicrange.NAME] = splitgene[0]+" "+" ".join(splitgene[2:])
+                    names[gene] = transcript
+            for entry in gr.all_entries:
+                splitgene = entry[genomicrange.NAME].split(" ")
+                if splitgene[0] not in duplicates:
+                    if len(splitgene) <= 2:
+                        entry[genomicrange.NAME] = splitgene[0]
+                    else:
+                        entry[genomicrange.NAME] = splitgene[0]+" "+" ".join(splitgene[2:])
 
         return (exons, transcripts)
 
