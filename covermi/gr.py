@@ -72,7 +72,7 @@ class Gr(dict):
 
 
     @classmethod
-    def load_manifest(genomicrange, path, excluded=[], ontarget=True):
+    def load_manifest(genomicrange, path, excluded=[], ontarget=True, offtarget=False):
         with file(path, "rU") as f:
             gr1 = genomicrange()
             section = "Header"
@@ -100,7 +100,7 @@ class Gr(dict):
                         rename_offtarget[splitline[0]] = amplicon_name
                     else:
                         amplicon_name = rename_offtarget[splitline[0]]
-                    if amplicon_name not in excluded and (splitline[2] == "1")==ontarget:
+                    if amplicon_name not in excluded and (((splitline[2] == "1") and ontarget) or ((splitline[2] != "1") and offtarget)):
                         gr1.construct( [splitline[3],
                             int(splitline[4])+probes[splitline[0]][splitline[6]=="+"],
                             int(splitline[5])-probes[splitline[0]][splitline[6]=="-"],
