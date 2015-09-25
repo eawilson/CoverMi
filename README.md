@@ -12,7 +12,7 @@ CoverMi provides coverage checking for next generation sequencing data. It has b
 
 ## Installation
 
-pip install covermi or run python setup.py install from with the covermi root directory
+pip install covermi or run python setup.py install from within the covermi root directory
 
 ## Documentation
 
