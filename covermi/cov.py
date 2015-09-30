@@ -1,6 +1,6 @@
 # { chr_name : [ [start, stop, depth], [start, stop, depth] ] }
 
-import re, subprocess, os, tempfile, pdb
+import re, subprocess, os, tempfile, copy, pdb
 from gr import Gr
 
 CSTART = 0
@@ -93,34 +93,34 @@ class Cov(dict):
         amplicon_metrics = {}
         for chr_name in amplicons:
             for entry in amplicons[chr_name]:
-                amplicon_metrics[entry[Gr.NAME]] = Amplicon_info([entry[Gr.NAME], "NA", "NA", Gr(entry)])
+                amplicon_metrics[entry.name] = Amplicon_info([entry.name, "NA", "NA", Gr(entry)])
 
         bedfile_temp = tempfile.TemporaryFile()
         for chr_name in sorted(amplicons):
             if len(amplicons[chr_name]) == 1:
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{2}\t{3}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0][Gr.NAME],
-                    amplicons[chr_name][0][Gr.START]-1, 
-                    amplicons[chr_name][0][Gr.STOP]))
+                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{2}\t{3}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0].name,
+                    amplicons[chr_name][0].start-1, 
+                    amplicons[chr_name][0].stop))
 
             else:
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0][Gr.NAME],
-                    amplicons[chr_name][0][Gr.START]-1, 
-                    min(amplicons[chr_name][0][Gr.STOP], amplicons[chr_name][1][Gr.START]-1),
-                    amplicons[chr_name][0][Gr.START]-1, 
-                    amplicons[chr_name][0][Gr.STOP]))
+                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0].name,
+                    amplicons[chr_name][0].start-1, 
+                    min(amplicons[chr_name][0].stop, amplicons[chr_name][1].start-1),
+                    amplicons[chr_name][0].start-1, 
+                    amplicons[chr_name][0].stop))
 
                 for index in range(1, len(amplicons[chr_name])-1):
-                    bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][index][Gr.NAME],
-                        amplicons[chr_name][index][Gr.START]-1,
-                        min(amplicons[chr_name][index][Gr.STOP], amplicons[chr_name][index+1][Gr.START]-1),
-                        max(amplicons[chr_name][index][Gr.START], amplicons[chr_name][index-1][Gr.STOP]+1)-1, 
-                        amplicons[chr_name][index][Gr.STOP]))
+                    bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][index].name,
+                        amplicons[chr_name][index].start-1,
+                        min(amplicons[chr_name][index].stop, amplicons[chr_name][index+1].start-1),
+                        max(amplicons[chr_name][index].start, amplicons[chr_name][index-1].stop+1)-1, 
+                        amplicons[chr_name][index].stop))
 
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][-1][Gr.NAME],
-                    amplicons[chr_name][-1][Gr.START]-1, 
-                    amplicons[chr_name][-1][Gr.STOP],
-                    max(amplicons[chr_name][-1][Gr.START], amplicons[chr_name][-2][Gr.STOP]+1)-1, 
-                    amplicons[chr_name][-1][Gr.STOP]))
+                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][-1].name,
+                    amplicons[chr_name][-1].start-1, 
+                    amplicons[chr_name][-1].stop,
+                    max(amplicons[chr_name][-1].start, amplicons[chr_name][-2].stop+1)-1, 
+                    amplicons[chr_name][-1].stop))
         bedfile_temp.seek(0, 0)
 
         bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=True)
@@ -214,10 +214,10 @@ class Cov(dict):
         for chr_name in gr1:
             firstpass[chr_name] = []
             for entry in gr1[chr_name]:
-                read_length = (entry[Gr.STOP] - entry[Gr.START] + 1) * 2 / 3
-                for pos in range(entry[Gr.START], entry[Gr.START]+read_length+1):
+                read_length = (entry.stop - entry.start + 1) * 2 / 3
+                for pos in range(entry.start, entry.start+read_length+1):
                     firstpass[chr_name].append([pos, perfect_depth])
-                for pos in range(entry[Gr.STOP]-read_length, entry[Gr.STOP]+1):
+                for pos in range(entry.stop-read_length, entry.stop+1):
                     firstpass[chr_name].append([pos, perfect_depth])
         return coverage._firstpass_into_coverage(firstpass)
 
@@ -245,32 +245,39 @@ class Cov(dict):
         results = []
         resultkey = {}
         for entry in gr1.all_entries:
-            name = entry[Gr.NAME] if (not total) else ""
-            name = name if (not exons) else "{0} e{1}".format(name, entry[Gr.NAME2])
+            name = entry.name if (not total) else ""
+            name = name if (not exons) else "{0} e{1}".format(name, entry.exon)
             if name not in resultkey:
                 resultkey[name] = len(results)
-                results.append(Coverage_info([ name, [0, 0], [0, 0], [Gr(), Gr()], [0, 0], entry[Gr.NAME2], [0, 0] ]))
+                results.append(Coverage_info([ name, [0, 0], [0, 0], [Gr(), Gr()], [0, 0], None, [0, 0] ]))
+                try:
+                    results[-1][DISEASES] = entry.diseses
+                except AttributeError:
+                    pass
             line = results[resultkey[name]]
 
             allcovered = True
-            for cstart, cstop, cdepth in self[entry[Gr.CHROM]]:
-                if cstart > entry[Gr.STOP]:
+            for cstart, cstop, cdepth in self[entry.chrom]:
+                if cstart > entry.stop:
                     break
-                elif cstop >= entry[Gr.START]:
-                    bases = min(entry[Gr.STOP], cstop) - max(entry[Gr.START], cstart) + 1
+                elif cstop >= entry.start:
+                    bases = min(entry.stop, cstop) - max(entry.start, cstart) + 1
                     line[DEPTH][cdepth>=min_depth] += (bases*cdepth)
                     line[BASES][cdepth>=min_depth] += bases
                     allcovered = allcovered and (cdepth>=min_depth)
-                    if entry[Gr.CHROM] in (line[RANGE][cdepth>=min_depth]) and cstart == line[RANGE][cdepth>=min_depth][entry[Gr.CHROM]][-1][Gr.STOP]+1:
-                            line[RANGE][cdepth>=min_depth][entry[Gr.CHROM]][-1][Gr.STOP] = min(entry[Gr.STOP], cstop)
+                    if entry.chrom in (line[RANGE][cdepth>=min_depth]) and cstart == line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop+1:
+                            line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop = min(entry.stop, cstop)
                     else:
-                        line[RANGE][cdepth>=min_depth].construct(list(entry)) 
-                        line[RANGE][cdepth>=min_depth][entry[Gr.CHROM]][-1][Gr.START] = max(entry[Gr.START], cstart) 
-                        line[RANGE][cdepth>=min_depth][entry[Gr.CHROM]][-1][Gr.STOP] = min(entry[Gr.STOP], cstop)
+                        line[RANGE][cdepth>=min_depth].construct(copy.copy(entry)) 
+                        line[RANGE][cdepth>=min_depth][entry.chrom][-1].start = max(entry.start, cstart) 
+                        line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop = min(entry.stop, cstop)
             line[COMPONENTS][COVERED] += int(allcovered)
             line[COMPONENTS][UNCOVERED] += int(not(allcovered))
-            line[WEIGHTED_COMPONENTS][COVERED] += int(allcovered) * entry[Gr.WEIGHT]
-            line[WEIGHTED_COMPONENTS][UNCOVERED] += int(not(allcovered)) * entry[Gr.WEIGHT]
+            try:
+                line[WEIGHTED_COMPONENTS][COVERED] += int(allcovered) * entry.weight
+                line[WEIGHTED_COMPONENTS][UNCOVERED] += int(not(allcovered)) * entry.weight
+            except AttributeError:
+                pass
 
         for result in results:
             for index in [0,1]:
@@ -284,15 +291,15 @@ class Cov(dict):
             f.write("chrom\tpos\tdepth\tname\n")
             for chr_name in gr1:
                 for entry in gr1[chr_name]:
-                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry[Gr.CHROM], entry[Gr.START]-1, 0, entry[Gr.NAME]))
+                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.start-1, 0, entry.name))
                     for cstart, cstop, cdepth in self[chr_name]:
                         if cstop >= start:
-                            f.write("{0}\t{1}\t{2}\t{3}\n".format(entry[Gr.CHROM], max(entry[Gr.START], cstart), cdepth, entry[Gr.NAME]))
+                            f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, max(entry.start, cstart), cdepth, entry.name))
                         if cstop >= stop:
                             if cstart < stop:
-                                f.write("{0}\t{1}\t{2}\t{3}\n".format(entry[Gr.CHROM], entry[Gr.STOP], cdepth, entry[Gr.NAME]))
+                                f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop, cdepth, entry.name))
                             break
-                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry[Gr.CHROM], entry[Gr.STOP]+1, 0, entry[Gr.NAME]))
+                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop+1, 0, entry.name))
 
 
     def filter_by_germline(self, germ, germmin):

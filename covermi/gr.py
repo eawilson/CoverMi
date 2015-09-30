@@ -45,12 +45,26 @@
 # 
 #
 
-import pdb
+import copy, pdb
 
+class Entry(object):
 
+    def __repr__(self):
+        return "[{0}, {1}, {2}, {3}, {4}]".format(self.chrom, self.start, self.stop, self.name, self.strand)
+
+    def __lt__(self, other):
+        return self.start<other.start
+
+    def __init__(self, chrom, start, stop, name, strand):
+        self.name = name
+        self.chrom = chrom
+        self.start = int(start)
+        self.stop = int(stop)
+        self.strand = strand
 
 
 class Gr(dict):
+
     KARYOTYPE = {"chr1":1, "chr2":2, "chr3":3, "chr4":4, "chr5":5, "chr6":6, "chr7":7, "chr8":8, "chr9":9, "chr10":10, "chr11":11, "chr12":12, 
                  "chr13":13, "chr14":14, "chr15":15, "chr16":16, "chr17":17, "chr18":18, "chr19":19, "chr20":20, "chr21":21, "chr22":22, "chrX":23, "chrY":24, "chrM":25}
     @classmethod
@@ -68,13 +82,31 @@ class Gr(dict):
 
     def __init__(self, entry=None):
         if entry is not None:
-            self.construct(list(entry))
+            self.construct(copy.copy(entry))
+
+
+    @classmethod
+    def load_bedfile(genomicrange, path):
+        with file(path, "rU") as f:
+            gr = genomicrange()
+            for line in f:
+                splitline = line.strip().split("\t")
+                if splitline != [""]:
+                    name = splitline[3] if len(splitline)>3 else "."
+                    strand = splitline[5] if len(splitline)>5 else "."
+                    gr.construct(Entry(splitline[0], 
+                                        int(splitline[1])+1,
+                                        splitline[2],
+                                        name,
+                                        strand))
+        gr.sort()
+        return gr
 
 
     @classmethod
     def load_manifest(genomicrange, path, excluded=[], ontarget=True, offtarget=False):
         with file(path, "rU") as f:
-            gr1 = genomicrange()
+            gr = genomicrange()
             section = "Header"
             skip_column_names = False
             probes = {}
@@ -101,15 +133,13 @@ class Gr(dict):
                     else:
                         amplicon_name = rename_offtarget[splitline[0]]
                     if amplicon_name not in excluded and (((splitline[2] == "1") and ontarget) or ((splitline[2] != "1") and offtarget)):
-                        gr1.construct( [splitline[3],
-                            int(splitline[4])+probes[splitline[0]][splitline[6]=="+"],
-                            int(splitline[5])-probes[splitline[0]][splitline[6]=="-"],
-                            amplicon_name,
-                            splitline[6],
-                            "",
-                            1] )
-        gr1.sort()
-        return gr1
+                        gr.construct(Entry(splitline[3],
+                                            int(splitline[4])+probes[splitline[0]][splitline[6]=="+"], 
+                                            int(splitline[5])-probes[splitline[0]][splitline[6]=="-"], 
+                                            amplicon_name, 
+                                            splitline[6]))
+        gr.sort()
+        return gr
 
 
     @classmethod
@@ -167,17 +197,20 @@ class Gr(dict):
                         if multiple_copies[name] == 1:
                             for gr in (exons, transcripts):
                                 for entry in gr.all_entries:
-                                    if entry[genomicrange.NAME] == name:
-                                        entry[genomicrange.NAME] = "{0} copy 1".format(name)
+                                    if entry.name == name:
+                                        entry.name = "{0} copy 1".format(name)
                         multiple_copies[name] += 1
                         name = "{0} copy {1}".format(name, multiple_copies[name])
               
-                    transcripts.construct([splitline[2], int(splitline[4])+1-genomicrange.SPLICE_SITE_BUFFER, int(splitline[5])+genomicrange.SPLICE_SITE_BUFFER, 
-                                           name, splitline[3], "", 1])
+                    entry = Entry(splitline[2], int(splitline[4])+1-genomicrange.SPLICE_SITE_BUFFER, int(splitline[5])+genomicrange.SPLICE_SITE_BUFFER,  name, splitline[3])
+                    entry.transcript = name
+                    transcripts.construct(entry)
 
                     exon_numbers = range(1,int(splitline[8])+1) if (splitline[3] == "+") else range(int(splitline[8]),0,-1)            
                     for start, stop, exon in zip(splitline[9].rstrip(",").split(","), splitline[10].rstrip(",").split(","), exon_numbers):
-                        exons.construct([splitline[2], int(start)+1-genomicrange.SPLICE_SITE_BUFFER, int(stop)+genomicrange.SPLICE_SITE_BUFFER, name, splitline[3], exon, 1])
+                        entry = Entry(splitline[2], int(start)+1-genomicrange.SPLICE_SITE_BUFFER, int(stop)+genomicrange.SPLICE_SITE_BUFFER, name, splitline[3])
+                        entry.exon = exon
+                        exons.construct(entry)
 
         missing = needed - found
         if not include_everything and len(missing) > 0:
@@ -191,18 +224,18 @@ class Gr(dict):
             names = {}
             duplicates = set([])
             for entry in gr.all_entries:
-                gene, transcript = entry[genomicrange.NAME].split(" ")[0:2]
+                gene, transcript = entry.name.split(" ")[0:2]
                 if gene in names and names[gene] != transcript:
                     duplicates.add(gene)
                 else:
                     names[gene] = transcript
             for entry in gr.all_entries:
-                splitgene = entry[genomicrange.NAME].split(" ")
+                splitgene = entry.name.split(" ")
                 if splitgene[0] not in duplicates:
                     if len(splitgene) <= 2:
-                        entry[genomicrange.NAME] = splitgene[0]
+                        entry.name = splitgene[0]
                     else:
-                        entry[genomicrange.NAME] = splitgene[0]+" "+" ".join(splitgene[2:])
+                        entry.name = splitgene[0]+" "+" ".join(splitgene[2:])
 
         return (exons, transcripts)
 
@@ -245,106 +278,86 @@ class Gr(dict):
                     name = mutation
  
                 if mutation not in mutations:
-                    mutations[mutation] = [splitline[4], int(splitline[5]), int(splitline[6]), name, splitline[7], set([]) if (catagory=="mutation") else "", 1]
+                    mutations[mutation] = Entry(splitline[4], splitline[5], splitline[6], name, splitline[7])
+                    if catagory == "mutation": 
+                        mutations[mutation].diseases=set([])
+                    mutations[mutation].weight = 1
                 else:
-                    mutations[mutation][genomicrange.WEIGHT] += 1
+                    mutations[mutation].weight += 1
                 if catagory == "mutation":
-                    mutations[mutation][genomicrange.NAME2].add(disease)
+                    mutations[mutation].diseases.add(disease)
 
-        gr1 = genomicrange()
+        gr = genomicrange()
         for entry in mutations.values():
             if catagory == "mutation":
-                entry[genomicrange.NAME2] = "; ".join(sorted(entry[genomicrange.NAME2]))
-            gr1.construct(entry)
-        gr1.sort()
-        return gr1
+                entry.diseases = "; ".join(sorted(entry.diseases))
+            gr.construct(entry)
+        gr.sort()
+        return gr
 
 
-    @classmethod
-    def load(genomicrange, path):
-        with file(path, "rU") as f:
-            gr1 = genomicrange()
-            for line in f:
-                splitline = line.rstrip("\n").split("\t")
-                if splitline != [""]:
-                    name1, name2, strand = ("", "", "")
-                    if len(splitline) >= 4:
-                        names = splitline[3].split("\\")
-                        name1 = names[0]
-                        if len(names) > 1:
-                            name2 = names[1]
-                        if len(splitline) >= 6:
-                            strand = splitline[5]
-                    gr1.construct( [splitline[0], int(splitline[1])+1, int(splitline[2]), name1, strand, name2, 1] )############################## DOES NOT LOAD/SAVE WEIGHT
-        gr1.sort()
-        return gr1
-
-
-    def construct(self, entry): # [chr_name, start, stop, name1, strand, exon/diseases, weight]
-        assert len(entry) == 7, "Genomic Range entry of incorrect length"
-        if entry[type(self).CHROM] not in self:
-            self[entry[type(self).CHROM]] = []
-        self[entry[type(self).CHROM]].append(entry)
+    def construct(self, entry):################################# ?add
+        if entry.chrom not in self:
+            self[entry.chrom] = []
+        self[entry.chrom].append(entry)
         return self
             
 
     def sort(self):
-        for chr_name in self:
-            self[chr_name].sort()
+        for chrom in self:
+            self[chrom].sort()
 
 
     @property
     def all_entries(self):
-        for chr_name in sorted(self, key=type(self).chromosome_number):
-            for entry in self[chr_name]:
+        for chrom in sorted(self, key=type(self).chromosome_number):
+            for entry in self[chrom]:
                 yield entry
 
     @property
     def merged(self): # The name of a range will be the name of the first sub-range that was merged into it
         merged = type(self)()
-        for chr_name in self:
-            merged[chr_name] = [list(self[chr_name][0])]
-            for entry in self[chr_name]:
-                if entry[type(self).START]-1 <= merged[chr_name][-1][type(self).STOP]:
-                    merged[chr_name][-1][type(self).STOP] = max(entry[type(self).STOP], merged[chr_name][-1][type(self).STOP])
+        for chrom in self:
+            merged[chrom] = [copy.copy(self[chrom][0])]
+            for entry in self[chrom]:
+                if entry.start-1 <= merged[chrom][-1].stop:
+                    merged[chrom][-1].stop = max(entry.stop, merged[chrom][-1].stop)
                 else:
-                    merged.construct(list(entry))
+                    merged.construct(copy.copy(entry))
         merged.sort()
         return merged
 
 
     def extended_to_include_touching_amplicons(self, gr):
-         extended = type(self)() 
-         amplicons = type(self)()
-         for chr_name in self:
-             for a in self[chr_name]:
-                 new_entry = list(a)
-                 if chr_name in gr:
-                     for b in gr[chr_name]:
-                         if b[type(self).START]>a[type(self).STOP]:
+         extended = type(self)()
+         amplicons = type(self)()########################################## = ?Gr
+         for chrom in self:
+             for a in self[chrom]:
+                 new_entry = copy.copy(a)
+                 if chrom in gr:
+                     for b in gr[chrom]:
+                         if b.start > a.stop:
                              break
-                         if (a[type(self).START]<=b[type(self).START]<=a[type(self).STOP]) or (a[type(self).START]<=b[type(self).STOP]<=a[type(self).STOP]) or \
-                             b[type(self).STOP]>a[type(self).STOP]:
-                             new_entry[type(self).START] = min(new_entry[type(self).START], b[type(self).START])
-                             new_entry[type(self).STOP] = max(new_entry[type(self).STOP], b[type(self).STOP])
-                             amplicons.construct(list(b))
+                         if (a.start <= b.start <= a.stop) or (a.start <= b.stop <= a.stop) or b.stop > a.stop:
+                             new_entry.start = min(new_entry.start, b.start)
+                             new_entry.stop = max(new_entry.stop, b.stop)
+                             amplicons.construct(copy.copy(b))
                  extended.construct(new_entry)
          return (extended, amplicons)
 
 
     def overlapped_by(self, gr):# If range gr contains overlapping ranges then we may get multiple copies of the overlapping ranges
          trimmed = type(self)()
-         for chr_name in self:
-            if chr_name in gr:
-                for a in self[chr_name]:
-                    for b in gr[chr_name]:
-                        if b[type(self).START]>a[type(self).STOP]:
+         for chrom in self:
+            if chrom in gr:
+                for a in self[chrom]:
+                    for b in gr[chrom]:
+                        if b.start > a.stop:
                             break
-                        if (a[type(self).START]<=b[type(self).START]<=a[type(self).STOP]) or (a[type(self).START]<=b[type(self).STOP]<=a[type(self).STOP]) or \
-                            b[type(self).STOP]>a[type(self).STOP]:
-                            new_entry = list(a)
-                            new_entry[type(self).START] = max(a[type(self).START],b[type(self).START])
-                            new_entry[type(self).STOP] = min(a[type(self).STOP],b[type(self).STOP])
+                        if (a.start <= b.start <= a.stop) or (a.start <= b.stop <= a.stop) or b.stop > a.stop:
+                            new_entry = copy.copy(a)
+                            new_entry.start = max(a.start, b.start)
+                            new_entry.stop = min(a.stop, b.stop)
                             trimmed.construct(new_entry)
          trimmed.sort() # Only needed if gr contains overlapping ranges which should not happen with sane use
          return trimmed
@@ -352,34 +365,32 @@ class Gr(dict):
 
     def not_touched_by(self, gr):
         untouched = type(self)() 
-        for chr_name in self:
-           for a in self[chr_name]:
+        for chrom in self:
+           for a in self[chrom]:
                touching = False
-               if chr_name in gr:
-                   for b in gr[chr_name]:
-                       if b[type(self).START]>a[type(self).STOP]:
+               if chrom in gr:
+                   for b in gr[chrom]:
+                       if b.start > a.stop:
                            break
-                       if (a[type(self).START]<=b[type(self).START]<=a[type(self).STOP]) or (a[type(self).START]<=b[type(self).STOP]<=a[type(self).STOP]) or \
-                           b[type(self).STOP]>a[type(self).STOP]:
+                       if (a.start <= b.start <= a.stop) or (a.start <= b.stop <= a.stop) or b.stop > a.stop:
                            touching = True
                            break
                if not touching:
-                   untouched.construct(list(a))
+                   untouched.construct(copy.copy(a))
         untouched.sort()
         return untouched
 
 
     def touched_by(self, gr):
          touched = type(self)() 
-         for chr_name in self:
-            for a in self[chr_name]:
-                if chr_name in gr:
-                    for b in gr[chr_name]:
-                        if b[type(self).START]>a[type(self).STOP]:
+         for chrom in self:
+            for a in self[chrom]:
+                if chrom in gr:
+                    for b in gr[chrom]:
+                        if b.start > a.stop:
                             break
-                        if (a[type(self).START]<=b[type(self).START]<=a[type(self).STOP]) or (a[type(self).START]<=b[type(self).STOP]<=a[type(self).STOP]) or \
-                            b[type(self).STOP]>a[type(self).STOP]:
-                            touched.construct(list(a))
+                        if (a.start <= b.start <= a.stop) or (a.start <= b.stop <= a.stop) or b.stop > a.stop:
+                            touched.construct(copy.copy(a))
                             break
          touched.sort()
          return touched
@@ -387,41 +398,38 @@ class Gr(dict):
     
     def subranges_covered_by(self, gr):
          covered = type(self)()
-         for chr_name in self:
-            if chr_name in gr:
-                for a in self[chr_name]:
-                    for b in gr[chr_name]:
-                        if b[type(self).START]>a[type(self).START]:
+         for chrom in self:
+            if chrom in gr:
+                for a in self[chrom]:
+                    for b in gr[chrom]:
+                        if b.start > a.start:
                             break
-                        if b[type(self).STOP]>=a[type(self).STOP]:
-                            covered.construct(list(a))
+                        if b.stop >= a.stop:
+                            covered.construct(copy.copy(a))
                             break
          covered.sort()
          return covered 
 
 
-    def combined_with(self, gr):
+    def combined_with(self, other):
         combined = type(self)()
-        for chr_name in self:
-            for entry in self[chr_name]:
-                combined.construct(list(entry))
-        for chr_name in gr:
-            for entry in gr[chr_name]:
-                combined.construct(list(entry))
+        for gr in (self, other):
+            for chrom in gr:
+                for entry in gr[chrom]:
+                    combined.construct(copy.copy(entry))
         combined.sort()
         return combined
 
 
     def subset2(self, names, exclude=False, genenames=False):
-        if type(names) != set:
-            names = set(names) if (type(names)==list) else set([names])
+        if not hasattr(names, "__iter__"):
+            names = [names]
         if genenames:
-            names = set([name.split()[0] for name in names])
+            names = [name.split()[0] for name in names]
         gr = type(self)()
         for entry in self.all_entries:
-            name = entry[type(self).NAME].split()[0] if genenames else entry[type(self).NAME]
-            if (name in names) ^ exclude:
-                gr.construct(list(entry))
+            if (entry.name.split()[0] if genenames else entry.name in names) ^ exclude:
+                gr.construct(copy.copy(entry))
         return gr
 
 
@@ -429,15 +437,15 @@ class Gr(dict):
     def names(self):
         names = set([])
         for entry in self.all_entries:
-            names.add(entry[type(self).NAME])
+            names.add(entry.name)
         return sorted(names)
 
 
     @property
     def number_of_components(self):
         output = 0
-        for chr_name in self:
-            output += len(self[chr_name])
+        for chrom in self:
+            output += len(self[chrom])
         return output
 
 
@@ -445,7 +453,7 @@ class Gr(dict):
     def number_of_weighted_components(self):
         output = 0
         for entry in self.all_entries:
-            output += entry[type(self).WEIGHT]
+            output += entry.weight
         return output
 
 
@@ -453,7 +461,7 @@ class Gr(dict):
     def base_count(self):
         output = 0
         for entry in self.all_entries:
-            output += entry[type(self).STOP] - entry[type(self).START] + 1
+            output += entry.stop - entry.start + 1
         return output
 
 
@@ -461,18 +469,20 @@ class Gr(dict):
     def locations_as_string(self):
         output = []
         for entry in self.all_entries:
-            output.append("{0}:{1}-{2}".format(entry[type(self).CHROM], entry[type(self).START], entry[type(self).STOP]))
+            output.append("{0}:{1}-{2}".format(entry.chrom, entry.start, entry.stop))
         return ", ".join(output)
 
 
     @property
-    def names_as_string(self):
+    def names_as_string(self):   
         namedict = {}
         for entry in self.all_entries:
-            if entry[type(self).NAME] not in namedict:
-                namedict[entry[type(self).NAME]] = []
-            if type(entry[type(self).NAME2]) == int:
-                namedict[entry[type(self).NAME]].append(entry[type(self).NAME2])
+            if entry.name not in namedict:
+                namedict[entry.name] = []
+            try:
+                namedict[entry.name].append(entry.exon)
+            except AttributeError:
+                pass
         namelist = []
         for name, numbers in namedict.items():
             numbers.sort()
@@ -489,7 +499,7 @@ class Gr(dict):
                 index = index2
             namelist.append("{0} {1}".format(name, ",".join(exons)))
             namelist.sort()
-        return ", ".join(namelist).strip()
+        return ", ".join(namelist).strip()####################?strip needed
 
 
     @property
@@ -498,14 +508,11 @@ class Gr(dict):
 
 
     def save(self, f): #Save type(self)() object in bedfile format, START POSITION IS ZERO BASED
-        if type(f) == str:
-            with file(f, "wt") as f2:
-                self._save(f2)
-        else:
-            self._save(f)
-
-    def _save(self, f): #Save type(self)() object in bedfile format, START POSITION IS ZERO BASED
-        for chr_name in self:
-            for entry in self[chr_name]:
-                f.write("{0}\t{1}\t{2}\t{3}\t.\t{4}\n".format(entry[type(self).CHROM], entry[type(self).START]-1, entry[type(self).STOP], "{0}\\{1}".format(entry[type(self).NAME], entry[type(self).NAME2]), entry[type(self).STRAND]))
+        try:
+            for entry in self.all.entries:
+                f.write("{0}\t{1}\t{2}\t{3}\t.\t{4}\n".format(entry.chrom, entry.start-1, entry.stop, entry.name, entry.strand))
+        except AttributeError:
+            with file(f, "wt") as realfile:
+                self.save(realfile)
+            
 

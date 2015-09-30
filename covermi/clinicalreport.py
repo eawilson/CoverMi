@@ -75,10 +75,10 @@ def create(coverage, panel, outputstem):
         table.headers.append(["", "", "", "", "Mutations in Gene" if frequency else "", ""])
         weighted_mutations_per_gene = {}
         for entry in panel["Variants_Mutation"].all_entries:
-            gene = entry[Gr.NAME].split()[0]
+            gene = entry.name.split()[0]
             if gene not in weighted_mutations_per_gene:
                 weighted_mutations_per_gene[gene] = 0
-            weighted_mutations_per_gene[gene] += entry[Gr.WEIGHT]
+            weighted_mutations_per_gene[gene] += entry.weight
         for i in coverage.calculate(panel["Variants_Mutation"].subranges_covered_by(targeted_range), minimum_depth):
             if i.bases_uncovered > 0:
                 table.rows.append([i.name.split()[0],

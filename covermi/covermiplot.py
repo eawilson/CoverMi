@@ -56,6 +56,9 @@ def plot(coverage, panel, outputstem):
         f.write(s.format("x", "y", "name", "component", "strand", "adjustment"))
 
         for entry in panel["Transcripts"].all_entries:
+                chrom = entry.chrom
+                name = entry.name
+                strand = entry.strand
                 gr1 = Gr(entry)
 
                 if "Amplicons" in panel:
@@ -64,11 +67,11 @@ def plot(coverage, panel, outputstem):
                     amplicons = Gr()
                 auc = 0
                 for amplicon in amplicons.all_entries:
-                    auc += amplicon[Gr.STOP] - amplicon[Gr.START] + 1                
+                    auc += amplicon.stop - amplicon.start + 1                
                 INTRON_SIZE = auc / amplicons.number_of_components if (amplicons.number_of_components>0) else 200
 
-                chrom, start, stop, name, strand = gr1.values()[0][0][0:5]
-
+                start = gr1[chrom][0].start
+                stop = gr1[chrom][0].stop
                 
                 exons = panel["Exons"].touched_by(gr1).subset2(name) if ("Exons" in panel) else Gr()
 
@@ -78,8 +81,8 @@ def plot(coverage, panel, outputstem):
                 end_of_prev_block = start-2
                 fixed_total = 0
                 for bentry in blocks.all_entries:
-                    bstart = bentry[Gr.START]
-                    bstop = bentry[Gr.STOP]
+                    bstart = bentry.start
+                    bstop = bentry.stop
                     intron_size = bstart - end_of_prev_block - 1
                     adj.append((end_of_prev_block+1, bstart-1, fixed_total, max(float(intron_size)/INTRON_SIZE, 1)))
                     fixed_total += max(intron_size - INTRON_SIZE, 0)
@@ -91,7 +94,7 @@ def plot(coverage, panel, outputstem):
 
                 if "Amplicons" in panel:
                     for aentry in amplicons.all_entries:
-                        f.write(line.encode(aentry[Gr.START], aentry[Gr.STOP], "amplicon"))
+                        f.write(line.encode(aentry.start, aentry.stop, "amplicon"))
                    
                 f.write(line.encode(start-1, 0, "coverage"))
                 for cstart, cstop, cdepth in coverage[chrom]:
@@ -105,14 +108,14 @@ def plot(coverage, panel, outputstem):
 
                 if "Exons" in panel:
                     for eentry in exons.all_entries:
-                        f.write(line.encode(eentry[Gr.START], eentry[Gr.STOP], "exon"))
-                        f.write(line.encode((eentry[Gr.START]+eentry[Gr.STOP])/2, str(eentry[Gr.NAME2]), "exon_number"))
+                        f.write(line.encode(eentry.start, eentry.stop, "exon"))
+                        f.write(line.encode((eentry.start+eentry.stop)/2, str(eentry.exon), "exon_number"))
         
                 if "Variants_Mutation" in panel:
                     variants = gr1.overlapped_by(panel["Variants_Mutation"])
                     vycoord = panel["Options"]["Depth"] if ("Depth" in panel["Options"]) else 0
                     for ventry in variants.all_entries:
-                            f.write(line.encode((ventry[Gr.START]+ventry[Gr.STOP])/2, vycoord, "variants"))
+                            f.write(line.encode((ventry.start+ventry.stop)/2, vycoord, "variants"))
         
                 if "Depth" in panel["Options"]:
                     f.write(line.encode(start, panel["Options"]["Depth"], "minimum"))

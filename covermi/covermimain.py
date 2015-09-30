@@ -58,7 +58,7 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
                 technicalreport.create(cov.amplicon_info, panel, os.path.join(technical_report_path, output_stem))
             else:
                 cov = Cov.load_bam(path, panel["Exons"], amplicons=False)
-
+            
             clinicalreport.create(cov, panel, os.path.join(clinical_report_path, output_stem))
             covermiplot.plot(cov, panel, os.path.join(clinical_report_path, output_stem))
             seconds = int(time.time() - start_time)
