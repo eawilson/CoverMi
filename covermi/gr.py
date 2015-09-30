@@ -71,13 +71,6 @@ class Gr(dict):
     def chromosome_number(genomicrange, chromosome): return genomicrange.KARYOTYPE[chromosome]
     MAX_CHR_LENGTH = 1000000000
     SPLICE_SITE_BUFFER = 5
-    CHROM = 0
-    START = 1
-    STOP = 2
-    NAME = 3
-    STRAND = 4
-    NAME2 = 5
-    WEIGHT = 6
 
 
     def __init__(self, entry=None):

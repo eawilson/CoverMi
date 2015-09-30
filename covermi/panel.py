@@ -169,7 +169,7 @@ class Panel(dict):
             panel["Variants_Disease"] = Gr.load_variants(self["Variants"], "disease", disease_names=disease_names_path)
             panel["Variants_Gene"] = Gr.load_variants(self["Variants"], "gene", genes_of_interest=panel["Transcripts"], disease_names=disease_names_path)
             panel["Variants_Mutation"] = Gr.load_variants(self["Variants"], "mutation", genes_of_interest=panel["Transcripts"], disease_names=disease_names_path)
-
+            
         panel["Filenames"] = { "Panel" : os.path.basename(self.panel_path.rstrip(os.pathsep)) }
         for filetype in self:
             panel["Filenames"][filetype] = os.path.splitext(os.path.basename(self[filetype]))[0]

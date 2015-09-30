@@ -251,7 +251,7 @@ class Cov(dict):
                 resultkey[name] = len(results)
                 results.append(Coverage_info([ name, [0, 0], [0, 0], [Gr(), Gr()], [0, 0], None, [0, 0] ]))
                 try:
-                    results[-1][DISEASES] = entry.diseses
+                    results[resultkey[name]][DISEASES] = entry.diseases
                 except AttributeError:
                     pass
             line = results[resultkey[name]]
