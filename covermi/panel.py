@@ -121,17 +121,18 @@ class Panel(dict):
 
         if "Manifest" in self:
             print "Loading manifest file: {0}".format(os.path.basename(self["Manifest"]))
-            excluded = []
+            panel["Amplicons"] = Gr.load_manifest(self["Manifest"])
             if "Excluded" in self:
+                excluded = []
                 with file(self["Excluded"], "rU") as f:
                     for line in f:
                         line = line.strip()
                         if line != "" and not line.startswith("#"):
                             excluded.append(line)
                 if design:
-                    panel["Excluded"] = excluded
-                    panel["AllAmplicons"] = Gr.load_manifest(self["Manifest"], [])
-            panel["Amplicons"] = Gr.load_manifest(self["Manifest"], panel["Excluded"] if ("Excluded" in panel) else [])
+                    panel["ExcludedAmplicons"] = panel("Amplicons").subset2(excluded)
+                panel["Amplicons"] = panel("Amplicons").subset2(excluded, exclude=True)
+
         elif "DesignStudio" in self:
             print "Loading Design Studio amplicons bedfile: {0}".format(os.path.basename(self["DesignStudio"]))
             panel["Amplicons"] = Gr.load(self["DesignStudio"])
@@ -149,26 +150,26 @@ class Panel(dict):
             else:
                 print "WARNING. No canonical gene list found. Loading all transcripts of targeted genes"
             panel["Exons"], panel["Transcripts"] = Gr.load_refflat(self["Reference"], 
-                                                                         self["Targets"] if ("Targets" in self) else "", 
-                                                                         self["Canonical"] if ("Canonical" in self) else "")
+                                                                   file(self["Targets"], "rU") if ("Targets" in self) else None, 
+                                                                   file(self["Canonical"], "rU") if ("Canonical" in self) else None)
 
             if "Targets" not in self and "Amplicons" in panel:
                 print "WARNING. No file identifying targeted genes. All genes touched by an amplicon will be assumed to be of interest"
                 panel["Transcripts"] = panel["Transcripts"].touched_by(panel["Amplicons"])
                 panel["Exons"] = panel["Exons"].touched_by(panel["Transcripts"]).subset2(panel["Transcripts"].names)
             if design:
-                panel["AllExons"], panel["AllTranscripts"] = Gr.load_refflat(self["Reference"], "", self["Canonical"] if ("Canonical" in self) else "")
+                panel["AllExons"], panel["AllTranscripts"] = Gr.load_refflat(self["Reference"], None, file(self["Canonical"], "rU") if ("Canonical" in self) else "")
 
         if "Variants" in self:
             print "Loading variants file: {0}".format(os.path.basename(self["Variants"]))
             if "Disease_Names" in self:
                 print "Loading disease names file: {0}".format(os.path.basename(self["Disease_Names"]))
-                disease_names_path = self["Disease_Names"]
-            else:
-                disease_names_path = None
-            panel["Variants_Disease"] = Gr.load_variants(self["Variants"], "disease", disease_names=disease_names_path)
-            panel["Variants_Gene"] = Gr.load_variants(self["Variants"], "gene", genes_of_interest=panel["Transcripts"], disease_names=disease_names_path)
-            panel["Variants_Mutation"] = Gr.load_variants(self["Variants"], "mutation", genes_of_interest=panel["Transcripts"], disease_names=disease_names_path)
+            panel["Variants_Disease"] = Gr.load_variants(self["Variants"], "disease",
+                                                         disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
+            panel["Variants_Gene"] = Gr.load_variants(self["Variants"], "gene", genes_of_interest=panel["Transcripts"].names, 
+                                                      disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
+            panel["Variants_Mutation"] = Gr.load_variants(self["Variants"], "mutation", genes_of_interest=panel["Transcripts"].names,
+                                                          disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
             
         panel["Filenames"] = { "Panel" : os.path.basename(self.panel_path.rstrip(os.pathsep)) }
         for filetype in self:

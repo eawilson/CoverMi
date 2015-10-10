@@ -1,5 +1,6 @@
 from reportfunctions import TextTable, header, location
 from gr import Gr
+import pdb
 
 
 def create(coverage, panel, outputstem):
@@ -106,14 +107,11 @@ def create(coverage, panel, outputstem):
             report += ["\n\n"] + ["Amplicons not covering a targeted gene\n"] + table.formated(sep="    ")
 
 
-    if "Excluded" in panel:
+    if "ExcludedAmplicons" in panel:
         table = TextTable()
         table.headers.append(["Amplicon", "Location"])
-        excluded_amplicons = panel["AllAmplicons"].subset2(panel["Excluded"])
-        for chr_name in Gr.KARYOTYPE:
-            if chr_name in excluded_amplicons:
-                for entry in excluded_amplicons[chr_name]:
-                    table.rows.append([entry.name, location(Gr(entry), panel)])
+        for entry in panel("ExcludedAmplicons").all_entries:
+            table.rows.append([entry.name, location(Gr(entry), panel)])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Amplicons in manifest file that have been excluded from analysis\n"] + table.formated(sep="    ")
 

@@ -47,10 +47,13 @@
 
 import copy, pdb
 
+class CoverMiException(Exception):
+    pass
+
 class Entry(object):
 
     def __repr__(self):
-        return "[{0}, {1}, {2}, {3}, {4}]".format(self.chrom, self.start, self.stop, self.name, self.strand)
+        return "[\"{0}\", {1}, {2}, \"{3}\", \"{4}\"]".format(self.chrom, self.start, self.stop, self.name, self.strand)
 
     def __lt__(self, other):
         return self.start<other.start
@@ -97,7 +100,7 @@ class Gr(dict):
 
 
     @classmethod
-    def load_manifest(genomicrange, path, excluded=[], ontarget=True, offtarget=False):
+    def load_manifest(genomicrange, path, ontarget=True, offtarget=False):
         with file(path, "rU") as f:
             gr = genomicrange()
             section = "Header"
@@ -112,7 +115,7 @@ class Gr(dict):
                     skip_column_names = False
 
                 elif line[0] == "[":
-                    section = line[1:len(line)-2]
+                    section = line[1:].split("]")[0]
                     if section != "Header":
                             skip_column_names = True
 
@@ -125,7 +128,7 @@ class Gr(dict):
                         rename_offtarget[splitline[0]] = amplicon_name
                     else:
                         amplicon_name = rename_offtarget[splitline[0]]
-                    if amplicon_name not in excluded and (((splitline[2] == "1") and ontarget) or ((splitline[2] != "1") and offtarget)):
+                    if ((splitline[2] == "1") and ontarget) or ((splitline[2] != "1") and offtarget):
                         gr.construct(Entry(splitline[3],
                                             int(splitline[4])+probes[splitline[0]][splitline[6]=="+"], 
                                             int(splitline[5])-probes[splitline[0]][splitline[6]=="-"], 
@@ -136,34 +139,33 @@ class Gr(dict):
 
 
     @classmethod
-    def load_refflat(genomicrange, path, genes_of_interest, canonical_transcripts):
+    def load_refflat(genomicrange, path, genes_of_interest=None, canonical_transcripts=None):
         canonicaldict = {}
-        if canonical_transcripts != "":
-            with file(canonical_transcripts, "rU") as f:
-                for line in f:
-                    gene, transcript = line.strip().split("\t")
-                    canonicaldict[gene] = transcript if len(transcript.split(" "))==1 else transcript.split(" ")[1]
+        if canonical_transcripts is not None:
+            for line in canonical_transcripts:
+                gene, transcript = line.strip().split("\t")
+                canonicaldict[gene] = transcript.split(" ")[-1]
 
         needed = set([])
         doublecheck = {}
         include_everything = True
-        if genes_of_interest != "":
-            with file(genes_of_interest, "rU") as f:
-                for line in f:
-                    line = line.strip()
-                    splitline = line.split()
-                    if line != "":
-                        include_everything = False
-                        if line in canonicaldict:
-                            needed.add(canonicaldict[line])
-                            doublecheck[canonicaldict[line]] = line 
-                        elif len(splitline) == 1:
+        if genes_of_interest is not None:
+            for line in genes_of_interest:
+                line = line.strip()
+                if line != "":
+                    include_everything = False
+                    if line in canonicaldict:
+                        needed.add(canonicaldict[line])
+                        doublecheck[canonicaldict[line]] = line
+                    else:
+                        splitline = line.split()
+                        if len(splitline) == 1:
                             needed.add(line)
                         elif len(splitline) == 2:
                             needed.add(splitline[1])
                             doublecheck[splitline[1]] = splitline[0]
                         else:
-                            raise #CoverMiException("Malformed line in gene file: {0}".format(line))
+                            raise CoverMiException("Malformed line in gene list: {0}".format(line))
             
         with file(path, "rU") as f:
             multiple_copies = {}
@@ -183,7 +185,8 @@ class Gr(dict):
                     else:
                         continue
 
-                    name = "{0} {1}".format(splitline[0], splitline[1])
+                    transcript = "{0} {1}".format(splitline[0], splitline[1])
+                    name = transcript
                     if name not in multiple_copies:
                         multiple_copies[name] = 1
                     else:
@@ -196,7 +199,7 @@ class Gr(dict):
                         name = "{0} copy {1}".format(name, multiple_copies[name])
               
                     entry = Entry(splitline[2], int(splitline[4])+1-genomicrange.SPLICE_SITE_BUFFER, int(splitline[5])+genomicrange.SPLICE_SITE_BUFFER,  name, splitline[3])
-                    entry.transcript = name
+                    entry.transcript = transcript
                     transcripts.construct(entry)
 
                     exon_numbers = range(1,int(splitline[8])+1) if (splitline[3] == "+") else range(int(splitline[8]),0,-1)            
@@ -234,18 +237,17 @@ class Gr(dict):
 
 
     @classmethod
-    def load_variants(genomicrange, path, catagory, genes_of_interest=None, disease_names=None):
+    def load_variants(genomicrange, path, catagory, genes_of_interest=None, disease_names=None): 
         if genes_of_interest is not None:
-            genes_of_interest = set([name.split()[0] for name in genes_of_interest.names])
+            genes_of_interest = set([name.split()[0] for name in genes_of_interest])
 
         disease_dict = {}
         if disease_names is not None:
-            with file(disease_names, "rU") as f:
-                for line in f:
-                    if line[0] != "#":
-                        line2 = line.rstrip().split("=")
-                        if len(line2) == 2:
-                            disease_dict[line2[0].strip("\" ")] = line2[1].strip("\" ")
+            for line in disease_names:
+                if line[0] != "#":
+                    line2 = line.rstrip().split("=")
+                    if len(line2) == 2:
+                        disease_dict[line2[0].strip("\" ")] = line2[1].strip("\" ")
 
         with file(path, "rU") as f:
             mutations = {}
@@ -285,6 +287,96 @@ class Gr(dict):
             if catagory == "mutation":
                 entry.diseases = "; ".join(sorted(entry.diseases))
             gr.construct(entry)
+        gr.sort()
+        return gr
+
+
+    @classmethod
+    def load_vcf(genomicrange, path, range_of_interest=None): #range_of_interest = genomic range covering variants to be loaded
+        gr = genomicrange()
+        if range_of_interest is not None:
+            range_of_interest = range_of_interest.merged
+        with file(path, "rU") as f:
+            for line in f:
+                if not line.startswith("#"):
+                    splitline = line.split("\t")
+                    chrom, untrimmedpos, snpid, untrimmedref, alts, qual, filters, junk = splitline[0:8]
+                    if len(splitline) == 10:
+                        headings, values = splitline[8:10]
+                    assert len(splitline) == 8 or len(splitline) == 10
+                    
+                    if not chrom.startswith("chr"):
+                        chrom = "chr{0}".format(chrom)
+                    if chrom == "chr23":
+                        chrom = "chrX"
+                    elif chrom == "chr24":
+                        chrom = "chrY"
+                    elif chrom == "chr25":
+                        chrom = "chrM"
+
+                    quality = float(qual) if (qual!=".") else "."
+                    passfilter = "."
+                    if filters != ".":
+                        passfilter = True
+                        for code in filters.split(";"):
+                            if code in ("LowGQX", "LowGQ"):
+                                passfilter = False
+                            elif code not in ("PASS", "LowVariantFreq", "R8"):
+                                raise CoverMiException("Unknown filter code {0} in VCF {1}".format(code, path))
+                    try:
+                        alt_depths = [ float(depth) for depth in values.split(":")[headings.split(":").index("AD")].split(",") ]
+                        total_depth = sum(alt_depths)
+                    except (ValueError, UnboundLocalError):
+                        pass
+
+                    untrimmedpos = int(untrimmedpos)
+                    alts = alts.split(",")
+                    for alt_number in range(0, len(alts)):
+                        alt = alts[alt_number]
+                        ref = untrimmedref
+                        start = untrimmedpos
+                        while len(ref) > 1 and len(alt) > 1:
+                            if ref[0:2] == alt[0:2]:
+                                ref = ref[1:]
+                                alt = alt[1:]
+                                start += 1
+                            elif ref[-1] == alt[-1]:
+                                ref = ref[:-1]
+                                alt = alt[:-1]
+                            else:
+                                break
+                        refalt_length_difference = len(ref) - len(alt)
+                        if refalt_length_difference == 0:#snp
+                            stop = start
+                        elif refalt_length_difference < 0:#alt longer than ref therefore insertion
+                            stop = start + 1
+                        else:#deletion 
+                            stop = start + 1 + refalt_length_difference
+
+                        if range_of_interest is not None:
+                            if chrom not in range_of_interest:
+                                continue
+                            covered = False
+                            for roi_entry in range_of_interest[chrom]:
+                                if roi_entry.start <= start and roi_entry.stop >= stop:
+                                    covered = True
+                                    break
+                                if roi_entry.start > stop:
+                                    break
+                            if not covered:
+                                continue
+
+                        entry = Entry(chrom, start, stop, "{0}:{1} {2}>{3}".format(chrom, start, ref, alt), "+")#?????strand
+                        entry.indel = refalt_length_difference != 0
+                        if quality != ".":
+                            entry.quality = quality
+                        if passfilter != ".":
+                            entry.passfilter = passfilter
+                        try:
+                            entry.vaf = alt_depths[alt_number+1]/total_depth
+                        except UnboundLocalError:
+                            pass
+                        gr.construct(entry)
         gr.sort()
         return gr
 
@@ -421,7 +513,7 @@ class Gr(dict):
             names = [name.split()[0] for name in names]
         gr = type(self)()
         for entry in self.all_entries:
-            if (entry.name.split()[0] if genenames else entry.name in names) ^ exclude:
+            if ((entry.name.split()[0] if genenames else entry.name) in names) ^ exclude:
                 gr.construct(copy.copy(entry))
         return gr
 
@@ -502,7 +594,7 @@ class Gr(dict):
 
     def save(self, f): #Save type(self)() object in bedfile format, START POSITION IS ZERO BASED
         try:
-            for entry in self.all.entries:
+            for entry in self.all_entries:
                 f.write("{0}\t{1}\t{2}\t{3}\t.\t{4}\n".format(entry.chrom, entry.start-1, entry.stop, entry.name, entry.strand))
         except AttributeError:
             with file(f, "wt") as realfile:
