@@ -64,7 +64,8 @@ def create(coverage, panel, outputstem):
     if "Variants_Mutation" in panel:
         table = TextTable()
         table.headers.append(["Gene", "Mutation", "Location", "Proportion of" if frequency else "", "Disease"])
-        table.headers.append(["", "", "", "Mutations in Gene" if frequency else "", ""])
+        table.headers.append(["", "", "", "Mutations in" if frequency else "", ""])
+        table.headers.append(["", "", "", "Gene" if frequency else "", ""])
         weighted_mutations_per_gene = {}
         for entry in panel["Variants_Mutation"].all_entries:
             gene = entry.name.split()[0]

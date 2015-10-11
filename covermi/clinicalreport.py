@@ -46,8 +46,8 @@ def create(coverage, panel, outputstem):
             detectable = targeted_variants.subset2(i.name).number_of_components
             table.rows.append([i.name, 
                               [i.components_covered, "/", detectable, "(", (float(i.components_covered)*100/max(detectable,1), "{:.0f}%)")],
-                              [i.components_covered, "/", i.components, "(", (i.percent_components_covered, "{:.0f}%)")], 
-                              (i.percent_weighted_components_covered, "{:.2f}%") if frequency else ""])
+                              [i.components_covered, "/", i.components, "(", (i.percent_components_covered, "{:.0f}%)")],
+                              (i.percent_weighted_components_covered, "{:.0f}%") if frequency else ""])
         if len(table.rows) > 0:
            report += ["\n\n"] + table.formated(sep="    ")
         
@@ -72,21 +72,22 @@ def create(coverage, panel, outputstem):
     if "Variants_Mutation" in panel:
         table = TextTable()
         table.headers.append(["Gene", "Mutation", "Location", "Depth", "Proportion of" if frequency else "", "Disease"])
-        table.headers.append(["", "", "", "", "Mutations in Gene" if frequency else "", ""])
+        table.headers.append(["", "", "", "", "Mutations in" if frequency else "", ""])
+        table.headers.append(["", "", "", "", "Gene" if frequency else "", ""])
         weighted_mutations_per_gene = {}
         for entry in panel["Variants_Mutation"].all_entries:
             gene = entry.name.split()[0]
             if gene not in weighted_mutations_per_gene:
                 weighted_mutations_per_gene[gene] = 0
             weighted_mutations_per_gene[gene] += entry.weight
-        for i in coverage.calculate(panel["Variants_Mutation"].subranges_covered_by(targeted_range), minimum_depth):
+        for i in coverage.calculate(panel["Variants_Mutation"], minimum_depth):
             if i.bases_uncovered > 0:
                 table.rows.append([i.name.split()[0],
                                    i.name.split()[1],
                                    i.range_uncovered.locations_as_string,
                                    i.depth_uncovered,
                                    (float(i.weighted_components_uncovered)*100/weighted_mutations_per_gene[i.name.split()[0]], "{:.2f}%") if frequency else "",
-                                   i.diseases])                  
+                                   i.diseases])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Inadequately covered targeted variants\n"] 
             report += table.formated(sep="  ", sortedby=4, reverse=True) if frequency else table.formated(sep="  ")
@@ -99,7 +100,7 @@ def create(coverage, panel, outputstem):
     for i in coverage.calculate(targeted_exons, minimum_depth, exons=True):
         if i.bases_uncovered > 0:
             table.rows.append([i.name, 
-                               (i.percent_covered, "{:.0f}%"), 
+                               (i.percent_covered, "{:.0f}%"),
                                i.range_uncovered.locations_as_string, 
                                i.depth_uncovered])
     if len(table.rows) > 0:

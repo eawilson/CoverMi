@@ -27,7 +27,7 @@ class TextTable(object):
                     fstring = "{}"
 
                 biggest = max([len(fstring.format(table[row][col])) for row in range(0, rows)])
-                if biggest >0 or not delete_empty_cols:
+                if not (biggest == 0 and delete_empty_cols):
                     for row in range(0, rows):
                         newtab[row].append(fstring.format(table[row][col]).ljust(biggest) if (type(table[row][col])==str) else fstring.format(table[row][col]).rjust(biggest))
         return newtab
@@ -65,9 +65,11 @@ def header(panel):
 
 def location(gr1, panel):
     if "Exons" and "Transcripts" in panel:
-        loc = (panel["AllExons"] if ("AllExons" in panel) else panel["Exons"]).overlapped_by(gr1).names_as_string
+        exons = panel["AllExons"] if ("AllExons" in panel) else panel["Exons"]
+        transcripts = panel["AllTranscripts"] if ("AllTranscripts" in panel) else panel["Transcripts"]
+        loc = exons.overlapped_by(gr1).names_as_string
         if loc =="":
-            loc = "{0} intron".format((panel["AllTranscripts"] if ("AllTranscripts" in panel) else panel["Transcripts"]).overlapped_by(gr1).names_as_string)
+            loc = "{0} intron".format(transcripts.overlapped_by(gr1).names_as_string)
             if loc == " intron":
                 loc = "not covering a "+("" if ("AllTranscripts" in panel) else"targeted ")+"gene"
     else:
