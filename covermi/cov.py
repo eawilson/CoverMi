@@ -3,12 +3,16 @@
 import re, subprocess, os, tempfile, copy, pdb
 from gr import Gr
 
+
+class CoverMiException(Exception):
+    pass
+
+
 CSTART = 0
 CSTOP = 1
 CDEPTH = 2
 FORWARD = True
 REVERSE = False
-CYGWIN_PATH = "C:\\cygwin64\\bin\\"
 
 NAME = 0
 DEPTH = 1
@@ -136,7 +140,7 @@ class Cov(dict):
                         firstpass[chr_name] = []
                     firstpass[chr_name] += tempdata
                     if amplicon_metrics[name][(strand=="-")+1] != "NA":  
-                        raise CoverMiError("Duplicate amplicon {0}".format(name))
+                        raise CoverMiException("Duplicate amplicon {0}".format(name))
                     amplicon_metrics[name][(strand=="-")+1] = tempdata[len(tempdata)/2][1] if (len(tempdata)>0) else 0
                         
                 if splitline == [""]:
@@ -161,12 +165,18 @@ class Cov(dict):
     def _create_bedtools(bamfile_name, bedfile_temp, stranded=False):
         if os.name == "nt":
             bamfile_name = os.path.abspath(bamfile_name).replace("C:", "/cygdrive/c").replace("\\", "/")
-            def decorate(command): return "{0}bash.exe -c \"PATH=/usr/bin:/usr/local/bin:$PATH; {1}; exit\"".format(CYGWIN_PATH, command)
+            if os.path.exists("C:\\cygwin64\\bin\\"):
+                cygwin_path = "C:\\cygwin64\\bin\\"
+            elif os.path.exists("C:\\cygwin\\bin\\"):
+                cygwin_path = "C:\\cygwin\\bin\\"
+            else:
+                raise CoverMiException("Unable to find Cygwin path")
+            def decorate(command): return "START /B {0}bash.exe -c \"PATH=/usr/bin:/usr/local/bin:$PATH; {1}; exit\"".format(cygwin_path, command)
         else:
             def decorate(command): return command
         version = subprocess.Popen(decorate("bedtools --version"), stdout=subprocess.PIPE, universal_newlines=True, shell=True).stdout.readline().strip()
         if not version.startswith("bedtools v"):
-            raise CoverMiError("Unable to start bedtools")
+            raise CoverMiException("Unable to start bedtools")
         major, minor, patch =  [int(num) for num in version[10:].split(".")]
         if major > 2 or (major == 2 and minor >=24):
             command = "bedtools coverage -d {0} -a '{2}' -b {1}"
@@ -408,6 +418,9 @@ class Coverage_info(list):
     @property
     def range_uncovered(self):
         return self[RANGE][UNCOVERED]
+    @property
+    def range_combined(self):
+        return self[RANGE][COVERED].combined_with(self[RANGE][UNCOVERED]).merged
     @property
     def bases(self):
         return sum(self[BASES])

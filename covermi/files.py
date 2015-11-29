@@ -12,14 +12,14 @@ class Files(list):
         self._strip_trailing_underscore = strip_trailing_underscore
 
         if os.path.isfile(path):
-            run, sample = os.path.split(path)
+            path2, ex = os.path.splitext(path)
+            run, sample = os.path.split(path2)
             run = os.path.basename(run)
-            sample, ex = os.path.splitext(sample)
             if ex != ext:
                 raise CoverMiException("file "+path+" is not of type "+ext)
             if self._strip_trailing_underscore:
                 sample = sample.split("_")[0]
-            self.append((run, sample, path))
+            self.append((run, sample, path2))
 
         elif os.path.isdir(path): 
             if not hasattr(ext, "__iter__"):

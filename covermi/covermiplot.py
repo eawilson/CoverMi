@@ -34,7 +34,7 @@ def plot(coverage, panel, outputstem):
                     mtime = os.path.getmtime(exe_path)
                     if mtime > newest_time:
                         newest_time = mtime
-                        r_path = "\""+exe_path+"\" \"{0}\""
+                        r_path = "START /B \""+exe_path+"\" \"{0}\""
         else:
             try:
                 with file(os.devnull, "wt") as DEVNULL:
@@ -119,6 +119,11 @@ def plot(coverage, panel, outputstem):
         
                 if "Depth" in panel["Options"]:
                     f.write(line.encode(start, panel["Options"]["Depth"], "minimum"))
+
+                if "Other" in panel:
+                    for oentry in gr1.overlapped_by(panel["Other"]).all_entries:
+                        f.write(line.encode(oentry.start, oentry.stop, "other"))
+
     
     genericrcode = resource_string(__name__, "covermiplot.R")
     rscript = outputstem+"R"

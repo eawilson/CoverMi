@@ -81,16 +81,16 @@ def create(coverage, panel, outputstem):
                 weighted_mutations_per_gene[gene] = 0
             weighted_mutations_per_gene[gene] += entry.weight
         for i in coverage.calculate(panel["Variants_Mutation"], minimum_depth):
-            if i.bases_uncovered > 0:
+            if i.incompletely_covered:
                 table.rows.append([i.name.split()[0],
                                    i.name.split()[1],
-                                   i.range_uncovered.locations_as_string,
+                                   i.range_combined.locations_as_string,
                                    i.depth_uncovered,
                                    (float(i.weighted_components_uncovered)*100/weighted_mutations_per_gene[i.name.split()[0]], "{:.2f}%") if frequency else "",
                                    i.diseases])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Inadequately covered targeted variants\n"] 
-            report += table.formated(sep="  ", sortedby=4, reverse=True) if frequency else table.formated(sep="  ")
+            report += table.formated(sep="  ", sortedby=4, reverse=True, trimcolumn=5) if frequency else table.formated(sep="  ", trimcolumn=4)
 
 
     # Coverage by Exon

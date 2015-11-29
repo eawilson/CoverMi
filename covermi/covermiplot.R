@@ -3,12 +3,12 @@ library(lattice)
 coverageplot<- function(dataframe, flip=TRUE, shrink=TRUE, ...) {
 
     df<-dataframe
-    df$component<-factor(df$component, levels=c("minimum", "coverage", "amplicon", "exon", "exon_number", "variants"), ordered=TRUE)
+    df$component<-factor(df$component, levels=c("minimum", "coverage", "amplicon", "exon", "exon_number", "variants", "other"), ordered=TRUE)
     df$name<-factor(df$name, levels=sort(levels(df$name)), ordered=TRUE)
     df$y[df$y<1]<-1
     if (shrink) {
         df$x<-df$x-df$adjustment
-        yisactuallyx<-df$component=="amplicon" | df$component=="exon"
+        yisactuallyx<-df$component=="amplicon" | df$component=="exon" | df$component=="other"
         df$y[yisactuallyx]<-df$y[yisactuallyx]-df$adjustment[yisactuallyx]
     }
     if (flip) {
@@ -49,6 +49,11 @@ coverageplot<- function(dataframe, flip=TRUE, shrink=TRUE, ...) {
                 #variant
                 panel.xyplot(abs(x), log10(y), type="p", col="black", pch=4)
             }
+            if (group.number==7) {
+                #other
+                panel.rect(abs(x), 0.8, abs(y), 1)
+            }
+
         },
         prepanel=function(x, y, ...) list(xlim=c(abs(min(x)), abs(max(x))), ylim=c(-0.5, 4)),
     )

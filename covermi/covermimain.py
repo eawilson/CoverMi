@@ -43,6 +43,7 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
 
         output_stems = set([])
         for panel["Filenames"]["Run"], panel["Filenames"]["Sample"], path in bam_file_list:
+            path += ".bam"
             start_time = time.time()
             print "{0}/{1}".format(panel["Filenames"]["Run"], panel["Filenames"]["Sample"])
 

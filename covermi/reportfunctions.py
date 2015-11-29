@@ -33,21 +33,28 @@ class TextTable(object):
         return newtab
 
 
-    def formated(self, sep="", sortedby=None, reverse=False, maxcolwidth=40):
+    def formated(self, sep="", sortedby=None, reverse=False, maxwidth=99, trimcolumn=None):
         if sortedby is not None:
             def bycolumn(line): return [line[sortedby]] + line
             self.rows.sort(key=bycolumn, reverse=reverse)
 
-        if maxcolwidth is not None: 
-            for row in range(0, len(self.rows)):
-                self.rows[row] = [item[0:maxcolwidth-2]+".." if (type(item)==str and len(item)>maxcolwidth) else item for item in self.rows[row]]
-
-        self.rows = type(self)._aligned(self.rows, delete_empty_cols=(len(self.headers)==0))
+        rows = type(self)._aligned(self.rows, delete_empty_cols=(len(self.headers)==0))
         if len(self.headers) > 0:
-            table = [sep.join(row)+"\n" for row in type(self)._aligned(self.headers + self.rows)]
+            rows = type(self)._aligned(self.headers + rows)
+
+        if trimcolumn is not None:
+            excess_width = len(sep.join(rows[0])) - maxwidth
+            if excess_width > 0:
+                trim_len = len(rows[0][trimcolumn]) - (excess_width + 2)
+                if trim_len > 0:
+                    for row in rows:
+                        row[trimcolumn] = row[trimcolumn][0:trim_len] + ".."
+
+        if len(self.headers) > 0:
+            table = [sep.join(row)+"\n" for row in rows]
             table = [("-"*(len(table[0])-1))+"\n"] + table[0:len(self.headers)] + [("-"*(len(table[0])-1))+"\n"] + table[len(self.headers):]
         else:
-            table = [sep.join(row)+"\n" for row in self.rows]
+            table = [sep.join(row)+"\n" for row in rows]
         return table
 
 

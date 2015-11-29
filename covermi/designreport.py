@@ -73,15 +73,15 @@ def create(coverage, panel, outputstem):
                 weighted_mutations_per_gene[gene] = 0
             weighted_mutations_per_gene[gene] += entry.weight
         for i in coverage.calculate(panel["Variants_Mutation"], minimum_depth):
-            if (somatic and i.bases_covered>0) or (not somatic and i.bases_uncovered>0):
+            if (somatic and i.completely_covered) or (not somatic and i.incompletely_covered):
                 table.rows.append([i.name.split()[0],
                                    i.name.split()[1],
-                                   i.range_covered.locations_as_string if somatic else i.range_uncovered.locations_as_string,
+                                   i.range_combined.locations_as_string,
                                    (float(i.weighted_components_covered if somatic else i.weighted_components_uncovered)*100/weighted_mutations_per_gene[i.name.split()[0]], "{:.2f}%") if frequency else "",
                                    i.diseases])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Variants "+("" if somatic else "not ")+"covered by panel\n"]
-            report += table.formated(sep="  ", sortedby=3, reverse=True) if frequency else table.formated(sep="  ")
+            report += table.formated(sep="  ", sortedby=3, reverse=True, trimcolumn=4) if frequency else table.formated(sep="  ", trimcolumn=3)
 
 
     # Coverage by Exon
