@@ -81,7 +81,7 @@ def create(coverage, panel, outputstem):
                                    i.diseases])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Variants "+("" if somatic else "not ")+"covered by panel\n"]
-            report += table.formated(sep="  ", sortedby=3, reverse=True, trimcolumn=4) if frequency else table.formated(sep="  ", trimcolumn=3)
+            report += table.formated(sep="  ", sortedby=3, reverse=True, trim_columns=((4, 20), (1,20))) if frequency else table.formated(sep="  ", trim_columns=((3, 20),))
 
 
     # Coverage by Exon

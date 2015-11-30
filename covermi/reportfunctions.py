@@ -33,22 +33,26 @@ class TextTable(object):
         return newtab
 
 
-    def formated(self, sep="", sortedby=None, reverse=False, maxwidth=99, trimcolumn=None):
+    def formated(self, sep="", sortedby=None, reverse=False, page_width=99, trim_columns=()):
         if sortedby is not None:
             def bycolumn(line): return [line[sortedby]] + line
             self.rows.sort(key=bycolumn, reverse=reverse)
 
-        rows = type(self)._aligned(self.rows, delete_empty_cols=(len(self.headers)==0))
+        rows = type(self)._aligned(self.rows, delete_empty_cols=(True if len(self.headers)==0 else False))
         if len(self.headers) > 0:
             rows = type(self)._aligned(self.headers + rows)
 
-        if trimcolumn is not None:
-            excess_width = len(sep.join(rows[0])) - maxwidth
+        for column_number, minimum_width in trim_columns:
+            excess_width = len(sep.join(rows[0])) - page_width
             if excess_width > 0:
-                trim_len = len(rows[0][trimcolumn]) - (excess_width + 2)
-                if trim_len > 0:
+                current_column_width = len(rows[0][column_number])
+                if current_column_width > minimum_width:
+                    new_column_width = max(current_column_width - excess_width, minimum_width)
                     for row in rows:
-                        row[trimcolumn] = row[trimcolumn][0:trim_len] + ".."
+                        if row[column_number][new_column_width:].strip() == "":
+                            row[column_number] = row[column_number][0:new_column_width]
+                        else:
+                            row[column_number] = row[column_number][0:new_column_width-3]+"..."
 
         if len(self.headers) > 0:
             table = [sep.join(row)+"\n" for row in rows]

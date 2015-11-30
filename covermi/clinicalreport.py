@@ -90,7 +90,7 @@ def create(coverage, panel, outputstem):
                                    i.diseases])
         if len(table.rows) > 0:
             report += ["\n\n"] + ["Inadequately covered targeted variants\n"] 
-            report += table.formated(sep="  ", sortedby=4, reverse=True, trimcolumn=5) if frequency else table.formated(sep="  ", trimcolumn=4)
+            report += table.formated(sep="  ", sortedby=4, reverse=True, trim_columns=((5, 20), (1, 20))) if frequency else table.formated(sep="  ", trim_columns=((4, 20),))
 
 
     # Coverage by Exon

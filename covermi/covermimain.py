@@ -4,7 +4,7 @@ from cov import Cov
 from panel import Panel
 from files import Files
 import technicalreport, clinicalreport, designreport, covermiplot
-
+#import testreport as clinicalreport
 
 class CoverMiException(Exception):
     pass
