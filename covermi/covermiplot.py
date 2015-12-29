@@ -73,7 +73,7 @@ def plot(coverage, panel, outputstem):
                 start = gr1[chrom][0].start
                 stop = gr1[chrom][0].stop
                 
-                exons = panel["Exons"].touched_by(gr1).subset2(name) if ("Exons" in panel) else Gr()
+                exons = panel["Exons"].touched_by(gr1).subset(name) if ("Exons" in panel) else Gr()
 
                 blocks = amplicons.combined_with(exons).merged
                 # adj = [start, stop, fixed subtraction, scaling factor]
@@ -101,7 +101,6 @@ def plot(coverage, panel, outputstem):
                     if cstop >= start:
                         f.write(line.encode(max(start, cstart), cdepth, "coverage"))
                         if cstop >= stop:
-
                             f.write(line.encode(min(stop, cstop), cdepth, "coverage"))
                             break
                 f.write(line.encode(stop+1, 0, "coverage"))

@@ -130,8 +130,8 @@ class Panel(dict):
                         if line != "" and not line.startswith("#"):
                             excluded.append(line)
                 if design:
-                    panel["ExcludedAmplicons"] = panel("Amplicons").subset2(excluded)
-                panel["Amplicons"] = panel("Amplicons").subset2(excluded, exclude=True)
+                    panel["ExcludedAmplicons"] = panel("Amplicons").subset(excluded)
+                panel["Amplicons"] = panel("Amplicons").subset(excluded, exclude=True)
 
         elif "DesignStudio" in self:
             print "Loading Design Studio amplicons bedfile: {0}".format(os.path.basename(self["DesignStudio"]))
@@ -156,7 +156,7 @@ class Panel(dict):
             if "Targets" not in self and "Amplicons" in panel:
                 print "WARNING. No file identifying targeted genes. All genes touched by an amplicon will be assumed to be of interest"
                 panel["Transcripts"] = panel["Transcripts"].touched_by(panel["Amplicons"])
-                panel["Exons"] = panel["Exons"].touched_by(panel["Transcripts"]).subset2(panel["Transcripts"].names)
+                panel["Exons"] = panel["Exons"].touched_by(panel["Transcripts"]).subset(panel["Transcripts"].names)
             if design:
                 panel["AllExons"], panel["AllTranscripts"] = Gr.load_refflat(self["Reference"], None, file(self["Canonical"], "rU") if ("Canonical" in self) else "")
 

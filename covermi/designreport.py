@@ -28,7 +28,7 @@ def create(coverage, panel, outputstem):
     # Coverage by Gene (for genes not in panel)
     table = TextTable()
     table.headers.append(["Gene", "Coverage"])
-    othergenes = panel["AllExons"].touched_by(panel["Amplicons"]).subset2(panel["Transcripts"].names, exclude=True, genenames=True)
+    othergenes = panel["AllExons"].touched_by(panel["Amplicons"]).subset(panel["Transcripts"].names, exclude=True, genenames=True)
     if not othergenes.is_empty:
         for i in coverage.calculate(othergenes, minimum_depth):
             table.rows.append([i.name, (i.percent_covered, "{:.0f}%")])
@@ -121,7 +121,7 @@ def create(coverage, panel, outputstem):
     table.headers.append(["Exon", "Upstream Padding", "Downstream Padding"])
     for chr_name in panel["Transcripts"]:
         for transcript in panel["Transcripts"][chr_name]:
-            exons = panel["Exons"].touched_by(Gr(transcript)).subset2(transcript.name)
+            exons = panel["Exons"].touched_by(Gr(transcript)).subset(transcript.name)
             amplicons = panel["Amplicons"].touched_by(Gr(transcript)).merged
             loopover = range(0, len(exons[chr_name])) if (transcript.strand=="+") else range(len(exons[chr_name])-1, -1, -1)
             for index in loopover:

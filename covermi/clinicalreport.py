@@ -26,15 +26,28 @@ def create(coverage, panel, outputstem):
     report += ["\n\n", "{0} of {1} bases ({2:0.1f}%) covered with a mean depth of {3}\n".format(i.bases_covered, i.bases, i.percent_covered, i.depth_covered)]
 
 
+    # Summary Table for WGS
+    if "Depths" in panel["Options"]:
+        table = TextTable()
+        table.headers.append(["Depth", "Proportion of genes with"])
+        table.headers.append(["",      "at least 90% coverage"])
+
+        for depth in sorted(panel["Options"]["Depths"], reverse=True):
+            info = coverage.calculate(targeted_exons, depth)
+            table.rows.append([depth, (float(sum([int(i.percent_covered>=90) for i in info]))*100/len(info), "{:.0f}%")])
+        if len(table.rows) > 0:
+            report += ["\n\n"] + table.formated(sep="    ")
+
+
     # Coverage by Gene
     table = TextTable()
     table.headers.append(["Gene", "Coverage of", "Coverage of", "Mean Depth"])
     table.headers.append(["", "Targeted Region", "Whole Gene     ", ""])
     for i in coverage.calculate(targeted_exons, minimum_depth):
-        table.rows.append([i.name, (i.percent_covered, "{:.0f}%"), (float(i.bases_covered*100)/panel["Exons"].subset2(i.name).base_count, "{:.0f}%"), i.depth_covered])
+        table.rows.append([i.name, (i.percent_covered, "{:.0f}%"), (float(i.bases_covered*100)/panel["Exons"].subset(i.name).base_count, "{:.0f}%"), i.depth_covered])
     if len(table.rows) > 0:
         report += ["\n\n"] + table.formated(sep="    ")
-    
+
 
     # Coverage by Variant per Gene
     if "Variants_Gene" in panel:
@@ -43,7 +56,7 @@ def create(coverage, panel, outputstem):
         table.headers.append(["", "in Targeted Region", "in Whole Gene     ", "Sensitivity" if frequency else ""])
         targeted_variants = panel["Variants_Gene"].subranges_covered_by(targeted_range)
         for i in coverage.calculate(panel["Variants_Gene"], minimum_depth):
-            detectable = targeted_variants.subset2(i.name).number_of_components
+            detectable = targeted_variants.subset(i.name).number_of_components
             table.rows.append([i.name, 
                               [i.components_covered, "/", detectable, "(", (float(i.components_covered)*100/max(detectable,1), "{:.0f}%)")],
                               [i.components_covered, "/", i.components, "(", (i.percent_components_covered, "{:.0f}%)")],
@@ -59,7 +72,7 @@ def create(coverage, panel, outputstem):
         table.headers.append(["", "in Targeted Region", "in Whole Geneome  ", "Sensitivity" if frequency else ""])
         targeted_variants = panel["Variants_Disease"].subranges_covered_by(targeted_range)
         for i in coverage.calculate(panel["Variants_Disease"], minimum_depth):
-            detectable = targeted_variants.subset2(i.name).number_of_components
+            detectable = targeted_variants.subset(i.name).number_of_components
             table.rows.append([i.name,
                               [i.components_covered, "/", detectable , "(", (float(i.components_covered*100)/max(detectable,1), "{:.0f}%)")],
                               [i.components_covered, "/", i.components, "(", (i.percent_components_covered,  "{:.0f}%)")],
@@ -72,8 +85,9 @@ def create(coverage, panel, outputstem):
     if "Variants_Mutation" in panel:
         table = TextTable()
         table.headers.append(["Gene", "Mutation", "Location", "Depth", "Proportion of" if frequency else "", "Disease"])
-        table.headers.append(["", "", "", "", "Mutations in" if frequency else "", ""])
-        table.headers.append(["", "", "", "", "Gene" if frequency else "", ""])
+        if frequency:
+            table.headers.append(["", "", "", "", "Mutations in" if frequency else "", ""])
+            table.headers.append(["", "", "", "", "Gene" if frequency else "", ""])
         weighted_mutations_per_gene = {}
         for entry in panel["Variants_Mutation"].all_entries:
             gene = entry.name.split()[0]

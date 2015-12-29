@@ -26,7 +26,7 @@ coverageplot<- function(dataframe, flip=TRUE, shrink=TRUE, ...) {
             }
             if (group.number==2) {
                 #coverage
-                panel.xyplot(abs(x), log10(y), type="s", lwd=2)
+                panel.xyplot(abs(x), log10(y), type="s", lwd=2)#####################################################################
             }
             if (group.number==3) {
                 #amplicon

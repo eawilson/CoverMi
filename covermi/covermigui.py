@@ -124,13 +124,13 @@ def main():
 
             print("{0} selected".format(bampath))
 
-        print("Please select a folder for the output")   
-        outputpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=outputpath, title='Please select a folder for the output')
+        print("Please select a location for the output")   
+        outputpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=outputpath, title='Please select a location for the output')
         if outputpath == "":
             sys.exit()
         print("Output folder {0} selected".format(outputpath))
 
-        covermimain.covermi_main(panelpath, bampath, outputpath)
+        covermimain.main(panelpath, bampath, outputpath)
 
         print("Finished")
     except Exception as e:

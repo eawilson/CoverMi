@@ -10,8 +10,8 @@ class CoverMiException(Exception):
     pass
 
 
-def create_output_dir(output_path):
-    output_path = os.path.join(output_path, "covermi_output")
+def create_output_dir(output_path, bam_path):
+    output_path = os.path.join(output_path, "{0}_covermi_output".format(os.path.splitext(os.path.basename(bam_path))[0]))
     try:
         os.mkdir(output_path)
     except OSError:
@@ -22,12 +22,12 @@ def create_output_dir(output_path):
     return output_path
 
 
-def covermi_main(panel_path, bam_path, output_path, depth=None):
+def main(panel_path, bam_path, output_path, depth=None):
 
     panel = Panel(panel_path).load(bam_path=="")
     if depth is not None:
         panel["Options"]["Depth"] = int(depth)
-    output_path = create_output_dir(output_path)
+    output_path = create_output_dir(output_path, bam_path)
     print "Processing..."
 
     if bam_path != "":
@@ -53,7 +53,7 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
                 output_stem = "{0}({1})".format(panel["Filenames"]["Sample"], dup_num)
                 dup_num += 1
             output_stems.add(output_stem)
-
+            
             if "Amplicons" in panel:
                 cov = Cov.load_bam(path, panel["Amplicons"], amplicons=True)
                 technicalreport.create(cov.amplicon_info, panel, os.path.join(technical_report_path, output_stem))
@@ -65,7 +65,6 @@ def covermi_main(panel_path, bam_path, output_path, depth=None):
             seconds = int(time.time() - start_time)
             time_string = "{0} sec".format(seconds) if (seconds<60) else "{0} min {01} sec".format(seconds/60, seconds%60)
             print"file {0} of {1} completed in {2}".format(len(output_stems), len(bam_file_list), time_string)
-
     else:
         cov = Cov.perfect_coverage(panel["Amplicons"])
         designreport.create(cov, panel, os.path.join(output_path, panel["Filenames"]["Panel"]))
@@ -95,7 +94,7 @@ if __name__ == "__main__":
         else:
             raise CoverMiException("Unrecognised option {0}".format(o))
 
-    covermimain(panel, bams, output, depth)
+    main(panel, bams, output, depth)
 
 
 

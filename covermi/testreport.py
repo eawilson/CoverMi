@@ -76,10 +76,7 @@ def create(coverage, panel, output_path):
                 info = coverage.calculate(all_variants, minimum_depth)
             for i in info:
                 mean_depth = "(mean depth {0})".format(i.depth_covered) if (i.components_covered>0) else ""
-                try:
-                    detectable = targeted_variants.subset(i.name).number_of_components
-                except AttributeError:
-                    detectable = targeted_variants.subset2(i.name).number_of_components
+                detectable = targeted_variants.subset(i.name).number_of_components
                 f.write("{0}{1:65}{2: >3} of {6: >3} ({5: >3.0f}%) detectable mutations ({4: >3.0f}% of {3: >3} known mutations) covered {7}\n".format(
                         header, i.name, i.components_covered, i.components, i.percent_components_covered, i.components_covered*100/max(detectable,1), detectable, mean_depth))
                 header = ""
@@ -103,7 +100,7 @@ def create(coverage, panel, output_path):
                 try:
                     detectable = targeted_variants.subset(i.name, exactmatch=True).number_of_components
                 except AttributeError:
-                    detectable = targeted_variants.subset2(i.name).number_of_components
+                    detectable = targeted_variants.subset(i.name).number_of_components
                 f.write("{0}{1:65}{2: >3} of {6: >3} ({5: >3.0f}%) detectable mutations ({4: >3.0f}% of {3: >3} known mutations) covered {7}\n".format(
                         header, i.name, i.components_covered, i.components, i.percent_components_covered, i.components_covered*100/max(detectable,1), detectable, mean_depth))
                 header = ""

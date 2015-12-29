@@ -52,42 +52,87 @@ class Cov(dict):
         bedfile_temp.seek(0, 0)
 
         bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=False)
-
-        name = ""
+        
+        first_pass = True
+        last_chr_name = ""
         while True:
             splitline = bedtools.stdout.readline().rstrip("\n").split("\t")
-            if splitline == [""] or splitline[3] != name:
-                if name != "":
-                    cov[chr_name].append([runstartpos, pos, depth])
-                if splitline == [""]:
-                    break
-                chr_name = splitline[0]
-                if chr_name not in cov:
-                    cov[chr_name] = []
-                runstartpos = int(splitline[1])+int(splitline[6])
-                runstartdepth = int(splitline[7])
-                cov[chr_name].append([runstartpos-1, runstartpos-1, 0])
-        
+            if splitline == [""]:
+                if not first_pass:
+                    cov[last_chr_name].append([first_pos, last_pos, last_depth])
+                break
             pos = int(splitline[1])+int(splitline[6])
             depth = int(splitline[7])
-            if runstartdepth != depth:
-                cov[chr_name].append([runstartpos, pos-1, runstartdepth])
-                runstartpos = pos
-                runstartdepth = depth
-            name = splitline[3]
-        bedfile_temp.close()
+            chr_name = splitline[0]                 
+            if chr_name != last_chr_name or pos != last_pos + 1 or depth != last_depth:
+                if not first_pass:
+                    if last_chr_name not in cov:
+                        cov[last_chr_name] = []
+                    cov[last_chr_name].append([first_pos, last_pos, last_depth])
+                first_pass = False   
+                first_pos = pos
+            last_pos = pos
+            last_depth = depth
+            last_chr_name = chr_name                 
             
+        bedfile_temp.close()
+        
         for chr_name in cov:
-            cov[chr_name].sort()
-    
-        for chr_name in cov:
-            cov[chr_name][0][CSTART] = 0
-            for index in range(1, len(cov[chr_name])):
-                #if cov[chr_name][index][CSTART] != (cov[chr_name][index-1][CSTOP]+1) and (cov[chr_name][index][CSTART] != cov[chr_name][index][CSTOP] or cov[chr_name][index][CDEPTH] != 0):
-                #    print cov[chr_name][index]###########################################????????????????????????????????????????????????????????????????????????????
-                cov[chr_name][index][CSTART] = cov[chr_name][index-1][CSTOP]+1
-            cov[chr_name].append([cov[chr_name][-1][CSTOP]+1, Gr.MAX_CHR_LENGTH, 0])
+            current = cov[chr_name]
+            current.sort()
+            current.append([current[-1][CSTOP]+1, Gr.MAX_CHR_LENGTH, 0])
+            current.append([0, current[0][CSTART]-1, 0])
+            for index in range(0, len(current)-3):
+                if current[index][CSTOP] != current[index+1][CSTART]-1:
+                    current.append([current[index][CSTOP]+1, current[index+1][CSTART]-1, 0])
+            current.sort()
         return cov
+        
+
+#    @classmethod
+#    def _load_bam_exons(coverage, bamfile_name, exons):
+#        cov = coverage()
+#        bedfile_temp = tempfile.TemporaryFile()
+#        exons.merged.save(bedfile_temp)
+#        bedfile_temp.seek(0, 0)
+
+#        bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=False)
+
+#        name = ""
+#        while True:
+#            splitline = bedtools.stdout.readline().rstrip("\n").split("\t")
+#            if splitline == [""] or splitline[3] != name:
+#                if name != "":
+#                    cov[chr_name].append([runstartpos, pos, depth])
+#                if splitline == [""]:
+#                    break
+#                chr_name = splitline[0]
+#                if chr_name not in cov:
+#                    cov[chr_name] = []
+#                runstartpos = int(splitline[1])+int(splitline[6])
+#                runstartdepth = int(splitline[7])
+#                cov[chr_name].append([runstartpos-1, runstartpos-1, 0])
+#        
+#            pos = int(splitline[1])+int(splitline[6])
+#            depth = int(splitline[7])
+#            if runstartdepth != depth:
+#                cov[chr_name].append([runstartpos, pos-1, runstartdepth])
+#                runstartpos = pos
+#                runstartdepth = depth
+#            name = splitline[3]
+#        bedfile_temp.close()
+#            
+#        for chr_name in cov:
+#            cov[chr_name].sort()
+#    
+#        for chr_name in cov:
+#            cov[chr_name][0][CSTART] = 0
+#            for index in range(1, len(cov[chr_name])):
+#                #if cov[chr_name][index][CSTART] != (cov[chr_name][index-1][CSTOP]+1) and (cov[chr_name][index][CSTART] != cov[chr_name][index][CSTOP] or cov[chr_name][index][CDEPTH] != 0):
+#                #    print cov[chr_name][index]###########################################????????????????????????????????????????????????????????????????????????????
+#                cov[chr_name][index][CSTART] = cov[chr_name][index-1][CSTOP]+1
+#            cov[chr_name].append([cov[chr_name][-1][CSTOP]+1, Gr.MAX_CHR_LENGTH, 0])
+#        return cov
 
 
     @classmethod
@@ -303,10 +348,10 @@ class Cov(dict):
                 for entry in gr1[chr_name]:
                     f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.start-1, 0, entry.name))
                     for cstart, cstop, cdepth in self[chr_name]:
-                        if cstop >= start:
+                        if cstop >= entry.start:
                             f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, max(entry.start, cstart), cdepth, entry.name))
-                        if cstop >= stop:
-                            if cstart < stop:
+                        if cstop >= entry.stop:
+                            if cstart < entry.stop:
                                 f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop, cdepth, entry.name))
                             break
                     f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop+1, 0, entry.name))

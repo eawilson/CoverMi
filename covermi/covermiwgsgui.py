@@ -1,6 +1,6 @@
 #!/usr/bin env python
 import sys, os, tkFileDialog, Tkinter, pdb, traceback
-import covermimain
+import covermiwgsmain
 from panel import Panel
 
 
@@ -10,7 +10,7 @@ class DepthDialog(object):
         self.parent.depth = ""
         self.window = Tkinter.Toplevel(self.parent)
         self.window.title("CoverMi")
-        Tkinter.Label(self.window, text="Please enter minimum depth").grid(column=0, row=0)
+        Tkinter.Label(self.window, text="Please enter a comma separated list of depths").grid(column=0, row=0)
         self.entry = Tkinter.Entry(self.window)
         self.entry.grid(column=1, row=0)
         self.entry.insert(0, str(default_depth))
@@ -18,64 +18,35 @@ class DepthDialog(object):
         self.entry.focus_set()
 
     def return_pressed(self, event):
-        if self.entry.get().isdigit():
-            self.parent.depth = self.entry.get()
+        depths = [depth.strip() for depth in self.entry.get().split(",")]
+        if all([depth.isdigit() for depth in depths]):
+            self.parent.depths = [int(depth) for depth in depths]
             self.window.destroy()
 
 
-class M_S_D_Dialog(object):
+class YesNo_Dialog(object):
     def __init__(self, parent):
         self.parent = parent
-        self.parent.msd = ""
+        self.parent.yesno = ""
         self.window = Tkinter.Toplevel(self.parent)
         self.window.title("CoverMi")
-        Tkinter.Label(self.window, text="Do you want to check a single bam, multiple bams or review the panel design?").grid(column=0, row=0, columnspan=3, padx=10, pady=5)
-        Tkinter.Button(self.window, text="Folder of bam files", width=15, command=self.multiple_pressed).grid(column=0, row=1, pady=10)
-        Tkinter.Button(self.window, text="Single bam file", width=15, command=self.single_pressed).grid(column=1, row=1, pady=10)
-        Tkinter.Button(self.window, text="Review panel design", width=15, command=self.design_pressed).grid(column=2, row=1, pady=10)
+        Tkinter.Label(self.window, text="Do you wish to coverage check any more bams?").grid(column=0, row=0, columnspan=2, padx=10, pady=5)
+        Tkinter.Button(self.window, text="Yes", width=15, command=self.yes_pressed).grid(column=0, row=1, pady=10, padx=10)
+        Tkinter.Button(self.window, text="No", width=15, command=self.no_pressed).grid(column=1, row=1, pady=10, padx=10)
 
-    def single_pressed(self):
-        self.parent.msd = "single"
+    def yes_pressed(self):
+        self.parent.yesno = "yes"
         self.window.destroy()
 
-    def multiple_pressed(self):
-        self.parent.msd = "multiple"
-        self.window.destroy()
-
-    def design_pressed(self):
-        self.parent.msd = "design"
-        self.window.destroy()
-
-
-class SomCon_Dialog(object):
-    def __init__(self, parent):
-        self.parent = parent
-        self.parent.somcon = ""
-        self.window = Tkinter.Toplevel(self.parent)
-        self.window.title("CoverMi")
-        Tkinter.Label(self.window, text="Is this a somatic or constitutional panel?").grid(column=0, row=0, columnspan=2, padx=10, pady=5)
-        Tkinter.Button(self.window, text="Somatic", width=15, command=self.som_pressed).grid(column=0, row=1, pady=10, padx=10)
-        Tkinter.Button(self.window, text="Constitutional", width=15, command=self.con_pressed).grid(column=1, row=1, pady=10, padx=10)
-
-    def som_pressed(self):
-        self.parent.somcon = "Somatic"
-        self.window.destroy()
-
-    def con_pressed(self):
-        self.parent.somcon = "Constitutional"
+    def no_pressed(self):
+        self.parent.yesno = "no"
         self.window.destroy()
 
 
 def main():
-    try:
-        
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        root_root_dir = os.path.dirname(root_dir)
-        if os.path.isdir(os.path.join(root_dir, "panels")):
-            root_dir = os.path.join(root_dir, "panels")
-        elif os.path.isdir(os.path.join(root_root_dir, "panels")):
-            root_dir = os.path.join(root_root_dir, "panels")
 
+    try:        
+        root_dir = os.path.dirname(os.path.expanduser("~"))
         rootwindow = Tkinter.Tk()
         rootwindow.withdraw()
 
@@ -85,52 +56,36 @@ def main():
             sys.exit()
         print("{0} panel selected".format(os.path.basename(panelpath)))
 
-        panel = Panel(panelpath)
-        options = panel.read_options()
-        rootwindow.wait_window(DepthDialog(rootwindow, str(options["Depth"]) if ("Depth" in options) else "").window)
-        if rootwindow.depth == "":
-            sys.exit()
-        options["Depth"] = int(rootwindow.depth)
-        print("Depth {0} selected".format(options["Depth"]))
-
-        if "ReportType" not in options:
-            print("Is this a somatic or constitutional panel?")
-            rootwindow.wait_window(SomCon_Dialog(rootwindow).window)    
-            if rootwindow.somcon == "":
-                sys.exit()
-            options["ReportType"] = rootwindow.somcon
-
-        panel.write_options(options)
-
-        print("Do you wish to coverage check multiple bams, a single bam or review the panel design?")
-        rootwindow.wait_window(M_S_D_Dialog(rootwindow).window)    
-        mode = str(rootwindow.msd)
-        if mode == "":
-            sys.exit()
-        elif mode == "design":
-            bampath = ""
-            outputpath = root_dir    
-            print("Design review selected")
-        else:
-            if mode == "multiple":
-                print("Please select the folder containing the bam files")
-                bampath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=root_dir, title='Please select a folder')
-            elif mode == "single":
+        bamlist = []
+        while True:
                 print("Please select a bam file")
                 bampath = tkFileDialog.askopenfilename(parent=rootwindow, initialdir=root_dir, filetypes=[("bamfile", "*.bam")], title='Please select a bam file')
-            if bampath == "":
-                sys.exit()
-            outputpath = os.path.dirname(bampath) if (mode=="single") else bampath
+                if bampath == "":
+                    sys.exit()
+                root_dir = os.path.dirname(bampath)
+                print("{0} selected".format(bampath))
 
-            print("{0} selected".format(bampath))
+                rootwindow.wait_window(DepthDialog(rootwindow, "").window)
+                if rootwindow.depths == "":
+                    sys.exit()
+                depths = rootwindow.depths
+                print("Depth {0} selected".format(", ".join([str(depth) for depth in depths])))
 
-        print("Please select a folder for the output")   
-        outputpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=outputpath, title='Please select a folder for the output')
+                bamlist += [(bampath, depths)]
+
+                rootwindow.wait_window(YesNo_Dialog(rootwindow).window)    
+                if rootwindow.yesno == "":
+                    sys.exit()
+                elif rootwindow.yesno == "no":
+                    break
+
+        print("Please select a location for the output")   
+        outputpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=root_dir, title='Please select a location for the output')
         if outputpath == "":
             sys.exit()
-        print("Output folder {0} selected".format(outputpath))
+        print("Output location {0} selected".format(outputpath))
 
-        covermimain.covermi_main(panelpath, bampath, outputpath)
+        covermiwgsmain.main(panelpath, bamlist, outputpath)
 
         print("Finished")
     except Exception as e:

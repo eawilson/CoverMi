@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name="covermi",
-    version="1.4.1",
+    version="1.4.4",
     description="Coverage checking for next generation sequencing panels",
     url="http://github.com/eawilson/covermi",
     author="Ed Wilson",
@@ -11,8 +11,11 @@ setup(name="covermi",
     include_package_data=True,
     zip_safe=True,
     entry_points={"console_scripts" : ["covermi=covermi.covermigui:main", 
+                                       "covermiwgs=covermi.covermiwgsgui:main",
                                        "covermi_make_canonical=covermi.scripts.make_canonical:main",
                                        "bringmiup=covermi.bringmiup:main",
-                                       "cosmic2variants=covermi.cosmic2variants:main"]}
+                                       "cosmic2variants=covermi.cosmic2variants:main",
+                                       "familycheck=covermi.familycheck:main",
+                                       "whosthedaddy=covermi.whosthedaddy:main"]}
 )
 

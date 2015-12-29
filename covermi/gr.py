@@ -315,14 +315,16 @@ class Gr(dict):
                         chrom = "chrM"
 
                     quality = float(qual) if (qual!=".") else "."
-                    passfilter = "."
-                    if filters != ".":
-                        passfilter = True
-                        for code in filters.split(";"):
-                            if code in ("LowGQX", "LowGQ"):
-                                passfilter = False
-                            elif code not in ("PASS", "LowVariantFreq", "R8"):
-                                raise CoverMiException("Unknown filter code {0} in VCF {1}".format(code, path))
+                    passfilter = "." if filters == "." else all([code in ("PASS", "LowVariantFreq") for code in filters.split(";")])
+#                    if filters != ".":
+#                        passfilter = True
+#                        for code in filters.split(";"):
+#                            if code in ("LowGQX", "LowGQ"):
+#                                passfilter = False
+#                            elif code not in ("PASS", "LowVariantFreq", "R8"):
+#                                passfilter = False
+#                                print code
+#                                #raise CoverMiException("Unknown filter code {0} in VCF {1}".format(code, path))
                     try:
                         alt_depths = [ float(depth) for depth in values.split(":")[headings.split(":").index("AD")].split(",") ]
                         total_depth = sum(alt_depths)
@@ -373,7 +375,10 @@ class Gr(dict):
                         if passfilter != ".":
                             entry.passfilter = passfilter
                         try:
-                            entry.vaf = alt_depths[alt_number+1]/total_depth
+                            if total_depth == 0:
+                                continue
+                            else:
+                                entry.vaf = alt_depths[alt_number+1]/total_depth
                         except UnboundLocalError:
                             pass
                         gr.construct(entry)
@@ -506,7 +511,7 @@ class Gr(dict):
         return combined
 
 
-    def subset2(self, names, exclude=False, genenames=False):
+    def subset(self, names, exclude=False, genenames=False):
         if not hasattr(names, "__iter__"):
             names = [names]
         if genenames:
