@@ -1,9 +1,12 @@
 from pkg_resources import resource_string
 import pdb
 from gr import Gr
-import subprocess, os, sys, re
-
-r_path = "unknown"
+import subprocess, os
+try:
+    from rpy2 import robjects
+    #from rpy2.robjects.packages import importr
+except ImportError:
+    pass
 
 class _Encode(object):
     def __init__(self, name, strand, adj):
@@ -21,31 +24,7 @@ class _Encode(object):
 
 
 def plot(coverage, panel, outputstem):
-    
-    global r_path
-    if r_path == "unknown":
-        if os.name ==  "nt":
-            newest_time = 0
-            r_path = "unavailable"
-            R_STEM = "C:\\Program Files\\R"
-            for root, dirnames, filenames in os.walk(R_STEM):
-                if "Rscript.exe" in filenames:
-                    exe_path = "{0}\\Rscript.exe".format(root)
-                    mtime = os.path.getmtime(exe_path)
-                    if mtime > newest_time:
-                        newest_time = mtime
-                        r_path = "START /B \""+exe_path+"\" \"{0}\""
-        else:
-            try:
-                with file(os.devnull, "wt") as DEVNULL:
-                    subprocess.check_call(["which", "R"], stdout=DEVNULL, stderr=DEVNULL)
-                r_path = "R -f '{0}'"
-            except CalledProcessError:
-                r_path = "unavailable"
-        if r_path == "unavailable":
-            print "WARNING R binary not found. no graphs will be plotted"
-
-    if "Transcripts" not in panel or r_path == "unavailable":
+    if "Transcripts" not in panel:
         return
 
     output_file = outputstem+"_plot.pdf"
@@ -119,20 +98,16 @@ def plot(coverage, panel, outputstem):
                 if "Depth" in panel["Options"]:
                     f.write(line.encode(start, panel["Options"]["Depth"], "minimum"))
 
-                if "Other" in panel:
-                    for oentry in gr1.overlapped_by(panel["Other"]).all_entries:
-                        f.write(line.encode(oentry.start, oentry.stop, "other"))
+                #if "Other" in panel:
+                #    for oentry in gr1.overlapped_by(panel["Other"]).all_entries:
+                #        f.write(line.encode(oentry.start, oentry.stop, "other"))
 
-    
     genericrcode = resource_string(__name__, "covermiplot.R")
-    rscript = outputstem+"R"
-    with file(rscript, "wt") as f:
-        f.write(genericrcode.replace("INPUT", os.path.abspath(rdataframe)).replace("OUTPUT", os.path.abspath(output_file)).replace("NAME", plotname).replace("\\", "/"))
-    
-    with file(os.devnull, "wt") as DEVNULL:
-        subprocess.call(r_path.format(rscript), shell=True, stdout=DEVNULL)
-    
+    rcode = genericrcode.replace("OUTPUT", os.path.abspath(output_file)).replace("INPUT", os.path.abspath(rdataframe)).replace("NAME", plotname).replace("\\", "/")
+    #grdevices = importr("grDevices")
+    #grdevices.pdf(file=os.path.abspath(output_file).replace("\\", "/"), width=11, height=7)
+    robjects.r(rcode)    
+    #grdevices.dev_off()
     os.unlink(rdataframe)
-    os.unlink(rscript)
 
 

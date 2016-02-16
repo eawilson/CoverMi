@@ -44,9 +44,6 @@ def main(panel_path, bamlist, output_path):
         covermiplot.plot(cov, panel, os.path.join(output_path, panel["Filenames"]["Sample"]))
 
 
-
-if __name__ == "__main__":
-    main("/home/ed/Desktop/covermi(old)/panels/Iron Panel v2 - 13.04.15_HD", [("/home/ed/Desktop/BAMS/Iron14/14Miseq030/G156929Y_S1.bam", [30,20,10])], "/home/ed/Desktop")
 #    try:
 #        opts, args = getopt.getopt(sys.argv[1:], "p:b:o:", ["panel=", "bams=", "output="])
 #    except getopt.GetoptError as err:
