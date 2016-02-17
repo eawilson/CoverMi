@@ -3,8 +3,7 @@ import pdb
 from gr import Gr
 import subprocess, os
 try:
-    from rpy2 import robjects
-    #from rpy2.robjects.packages import importr
+    import pyper
 except ImportError:
     pass
 
@@ -104,10 +103,8 @@ def plot(coverage, panel, outputstem):
 
     genericrcode = resource_string(__name__, "covermiplot.R")
     rcode = genericrcode.replace("OUTPUT", os.path.abspath(output_file)).replace("INPUT", os.path.abspath(rdataframe)).replace("NAME", plotname).replace("\\", "/")
-    #grdevices = importr("grDevices")
-    #grdevices.pdf(file=os.path.abspath(output_file).replace("\\", "/"), width=11, height=7)
-    robjects.r(rcode)    
-    #grdevices.dev_off()
+    r = pyper.R()
+    r.run(rcode)    
     os.unlink(rdataframe)
 
 
