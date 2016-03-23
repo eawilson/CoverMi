@@ -224,9 +224,9 @@ class Cov(dict):
             raise CoverMiException("Unable to start bedtools")
         major, minor, patch =  [int(num) for num in version[10:].split(".")]
         if major > 2 or (major == 2 and minor >=24):
-            command = "bedtools coverage -d {0} -a '{2}' -b {1}"
+            command = "bedtools coverage -d {0} -a '{2}' -b '{1}'"
         else:
-            command = "bedtools coverage -d {0} -abam '{1}' -b {2}"
+            command = "bedtools coverage -d {0} -abam '{1}' -b '{2}'"
             
         command = decorate(command.format("-s" if stranded else "", bamfile_name, "stdin"))
         return subprocess.Popen(command, stdout=subprocess.PIPE, stdin=bedfile_temp, universal_newlines=True, shell=True)
