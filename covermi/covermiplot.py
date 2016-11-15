@@ -2,10 +2,12 @@ from pkg_resources import resource_string
 import pdb
 from gr import Gr
 import subprocess, os
+
 try:
     import pyper
+    r_installed = True
 except ImportError:
-    pass
+    r_installed = False
 
 class _Encode(object):
     def __init__(self, name, strand, adj):
@@ -23,7 +25,7 @@ class _Encode(object):
 
 
 def plot(coverage, panel, outputstem):
-    if "Transcripts" not in panel:
+    if not r_installed or "Transcripts" not in panel:
         return
 
     output_file = outputstem+"_plot.pdf"
@@ -103,8 +105,8 @@ def plot(coverage, panel, outputstem):
 
     genericrcode = resource_string(__name__, "covermiplot.R")
     rcode = genericrcode.replace("OUTPUT", os.path.abspath(output_file)).replace("INPUT", os.path.abspath(rdataframe)).replace("NAME", plotname).replace("\\", "/")
-    r = pyper.R()
-    r.run(rcode)    
+    r_process = pyper.R()
+    r_process.run(rcode)
     os.unlink(rdataframe)
 
 

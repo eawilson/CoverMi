@@ -135,7 +135,7 @@ class Panel(dict):
 
         elif "DesignStudio" in self:
             print "Loading Design Studio amplicons bedfile: {0}".format(os.path.basename(self["DesignStudio"]))
-            panel["Amplicons"] = Gr.load(self["DesignStudio"])
+            panel["Amplicons"] = Gr.load_bedfile(self["DesignStudio"])
         elif "Targets" in self:
             print "No manifest or design studio bedfile in panel. Will perform coverage analysis over all exons of genes in targets file"
         else:

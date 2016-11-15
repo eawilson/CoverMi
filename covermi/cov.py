@@ -202,7 +202,10 @@ class Cov(dict):
 
         cov = coverage._firstpass_into_coverage(firstpass)
         cov.amplicon_info = amplicon_metrics.values()
-        cov.amplicon_info.sort(key=coverage._amplicon_number)
+        try:
+            cov.amplicon_info.sort(key=coverage._amplicon_number)
+        except AttributeError:
+            pass
         return cov
 
 

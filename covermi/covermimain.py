@@ -3,7 +3,7 @@ import sys, os, time, re, getopt, pdb
 from cov import Cov
 from panel import Panel
 from files import Files
-import technicalreport, clinicalreport, designreport, covermiplot
+import covermiconf, technicalreport, clinicalreport, designreport, covermiplot
 #import testreport as clinicalreport
 
 class CoverMiException(Exception):
@@ -24,10 +24,13 @@ def create_output_dir(output_path, bam_path):
 
 def main(panel_path, bam_path, output_path, depth=None):
 
+    if not os.path.exists(panel_path):
+        panel_path = os.path.join(covermiconf.load_conf["panel_root"], panel_path)
+
     panel = Panel(panel_path).load(bam_path=="")
     if depth is not None:
         panel["Options"]["Depth"] = int(depth)
-    output_path = create_output_dir(output_path, bam_path)
+    output_path = create_output_dir(output_path, bam_path if bam_path!="" else panel_path)
     print "Processing..."
 
     if bam_path != "":

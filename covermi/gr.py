@@ -252,11 +252,11 @@ class Gr(dict):
         with file(path, "rU") as f:
             mutations = {}
             for line in f:
-                splitline = line.rstrip().split("\t")
+                splitline = line.rstrip("\n").split("\t")
                 if splitline == [""] or splitline[4] not in genomicrange.KARYOTYPE:
                     continue
                 if genes_of_interest is not None and splitline[3] not in genes_of_interest:
-                    continue
+                    continue    
                 mutation = "{0} {1} {2}:{3}-{4}".format(splitline[3], splitline[8], splitline[4], splitline[5], splitline[6])# gene mutation location
                 disease = splitline[1].strip("\" ")
                 if disease in disease_dict:

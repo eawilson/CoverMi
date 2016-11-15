@@ -1,6 +1,6 @@
 #!/usr/bin env python
 import sys, os, tkFileDialog, Tkinter, pdb, traceback
-import covermimain
+import covermimain, covermiconf
 from panel import Panel
 
 
@@ -68,21 +68,16 @@ class SomCon_Dialog(object):
 
 def main():
     try:
-        
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        root_root_dir = os.path.dirname(root_dir)
-        if os.path.isdir(os.path.join(root_dir, "panels")):
-            root_dir = os.path.join(root_dir, "panels")
-        elif os.path.isdir(os.path.join(root_root_dir, "panels")):
-            root_dir = os.path.join(root_root_dir, "panels")
+        conf = covermiconf.load_conf()
 
         rootwindow = Tkinter.Tk()
         rootwindow.withdraw()
 
         print("Please select a panel")
-        panelpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=root_dir, title='Please select a panel')
+        panelpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=conf["panel_root"], title='Please select a panel')
         if not bool(panelpath):
             sys.exit()
+        panelpath = os.path.abspath(panelpath)
         print("{0} panel selected".format(os.path.basename(panelpath)))
 
         panel = Panel(panelpath)
@@ -109,25 +104,27 @@ def main():
             sys.exit()
         elif mode == "design":
             bampath = ""
-            outputpath = root_dir    
+            outputpath = conf["panel_root"]  
             print("Design review selected")
         else:
             if mode == "multiple":
                 print("Please select the folder containing the bam files")
-                bampath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=root_dir, title='Please select a folder')
+                bampath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=conf["bam_root"], title='Please select a folder')
             elif mode == "single":
                 print("Please select a bam file")
-                bampath = tkFileDialog.askopenfilename(parent=rootwindow, initialdir=root_dir, filetypes=[("bamfile", "*.bam")], title='Please select a bam file')
+                bampath = tkFileDialog.askopenfilename(parent=rootwindow, initialdir=conf["bam_root"], filetypes=[("bamfile", "*.bam")], title='Please select a bam file')
             if bampath == "":
                 sys.exit()
+            bampath = os.path.abspath(bampath)
             outputpath = os.path.dirname(bampath) if (mode=="single") else bampath
 
             print("{0} selected".format(bampath))
 
-        print("Please select a location for the output")   
+        print("Please select a location for the output")
         outputpath = tkFileDialog.askdirectory(parent=rootwindow, initialdir=outputpath, title='Please select a location for the output')
         if outputpath == "":
             sys.exit()
+        outputpath = os.path.abspath(outputpath)
         print("Output folder {0} selected".format(outputpath))
 
         covermimain.main(panelpath, bampath, outputpath)
