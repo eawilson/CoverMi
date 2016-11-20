@@ -1,8 +1,11 @@
-import os, pdb
+import os, re, pdb
 
 
 class CoverMiException(Exception):
     pass
+
+
+illumina_suffix = re.compile("(.+)_S[0-9]+$")
 
 
 class Files(list):
@@ -60,7 +63,11 @@ class Files(list):
             for filename in filenames:
                 filename, extension = os.path.splitext(filename)
                 if extension == ext:
-                    sample = filename.split("_")[0] if self._strip_trailing_underscore else filename
+                    sample = filename
+                    if  self._strip_trailing_underscore:
+                        matchobj = illumina_suffix.search(filename)
+                        if matchobj:
+                            sample = matchobj.group(1)
                     if (run, sample) in found:
                         raise CoverMiException("Sample "+sample+" duplicated in run "+run)
                     found.add((run, sample))

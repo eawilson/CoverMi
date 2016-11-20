@@ -171,9 +171,18 @@ class Panel(dict):
             panel["Variants_Mutation"] = Gr.load_variants(self["Variants"], "mutation", genes_of_interest=panel["Transcripts"].names,
                                                           disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
             
+            # Check to try and see if the variants file is aligned against the correct reference genome
+            targeted_variants = panel["Variants_Gene"].subset(panel["Transcripts"].names)
+            variants_in_correct_location = targeted_variants.touched_by(panel["Transcripts"]).number_of_components * 100 / targeted_variants.number_of_components
+            if variants_in_correct_location < 100:
+                print "WARNING. Only {}% of targeted variants are within targeted genes. ?Correct reference genome".format(variants_in_correct_location)
+
         panel["Filenames"] = { "Panel" : os.path.basename(self.panel_path.rstrip(os.pathsep)) }
         for filetype in self:
             panel["Filenames"][filetype] = os.path.splitext(os.path.basename(self[filetype]))[0]
-        
+
         return panel
+
+
+
 
