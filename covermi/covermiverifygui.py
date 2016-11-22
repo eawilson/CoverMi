@@ -16,6 +16,7 @@ def main():
         rootwindow = Tkinter.Tk()
         rootwindow.withdraw()
 
+        print "CoverMi version {}".format(version)
         print("Please select the verification directory. This must contain a single panel and one or more bams run with that panel.")
         path = tkFileDialog.askdirectory(parent=rootwindow, title='Please select the verification directory')
         if not bool(path):
