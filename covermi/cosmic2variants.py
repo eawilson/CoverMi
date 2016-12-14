@@ -51,7 +51,7 @@ def main():
         abort("File {0} already exists".format(outputfilepath))
 
     print "Writing file {0}".format(os.path.basename(outputfilepath))
-    with file(outputfilepath, "wt") as of:
+    with file(outputfilepath, "wb") as of:
         writer = csv.writer(of, delimiter="\t")
         writer.writerow(["HGMD ID", "Disease", "Variant Class", "Gene Symbol", "chromosome", "coordinate start", "coordinate end", "strand", "hgvs"])
 
@@ -82,7 +82,7 @@ def main():
         with file(panel["Disease_Names"]) as f:
             for l in f:
                 if l[0] != "#":
-                    old_name, new_name = l.split("=").strip()
+                    old_name, new_name = l.strip().split("=")
                     if old_name in diseases:
                         diseases[old_name] = "="+new_name
         os.unlink(panel["Disease_Names"])

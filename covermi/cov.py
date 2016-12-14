@@ -11,8 +11,6 @@ class CoverMiException(Exception):
 CSTART = 0
 CSTOP = 1
 CDEPTH = 2
-FORWARD = True
-REVERSE = False
 
 NAME = 0
 DEPTH = 1

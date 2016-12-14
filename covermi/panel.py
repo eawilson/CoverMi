@@ -23,23 +23,21 @@ class CoverMiException(Exception):
     pass
 
 
-filetypes = ["Excluded", "Reference", "Depth", "Targets", "Targets", "Manifest", "Variants", 
-             "Canonical", "Canonical", "DesignStudio", "Disease_Names", "SNPs", "VCF", "Options"]
-regexps = ["^chr[1-9XYM][0-9]?:[0-9]+-[0-9]+\\s*\n", #Single column of amplicon names in the format chr1:12345-67890 - excluded
-           "^.+?\t.+?\tchr.+?\t[+-]\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9,]+\t[0-9,]+\\s*\n", #Eleven columns - refflat
-           "^[0-9]+\\s*\n", #Single number - depth
-           "^[a-zA-Z][a-zA-Z0-9-]*\\s*\n", #Single column - targets
-           "^[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n", #Single column - targets
-           "^\\[Header\\]", #Manifest
-           "^.+?\t.+?\t.+?\t[a-zA-Z0-9]+\t(null|chr[1-9XYM][0-9]?)\t(null|[0-9]+)\t(null|[0-9]+)\t(null|[+-])\t", #Nine columns - variants
-           "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n", #Two columns - canonical
-           "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z0-9_]+\\s*\n", #Two columns - canonical
-           "^chr[0-9XYM]+\t[0-9]+\t[0-9]+\t[^\t]+\t[0-9]+\t[+-]\\s*\n", #Six column bedfile - design
-           "^#Variants Disease Name Translation\\s*\n", #Disease_Names
-           "^chr[1-9XYM][0-9]?:[0-9]+ [ATCG\.]+>[ATCG\.]\\s*\n", #SNPs
-           "^##fileformat=VCFv[0-9\.]+\\s*\n", #VCF
-           "#CoverMi options\\s*\n"] # CoverMi panel options
-
+regexps = (("Excluded",         "^chr[1-9XYM][0-9]?:[0-9]+-[0-9]+\\s*\n"), #Single column of amplicon names in the format chr1:12345-67890 - excluded
+           ("Reference",        "^.+?\t.+?\tchr.+?\t[+-]\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9,]+\t[0-9,]+\\s*\n"), #Eleven columns - refflat
+           ("Depth",            "^[0-9]+\\s*\n"), #Single number - depth
+           ("Targets",          "^[a-zA-Z][a-zA-Z0-9-]*\\s*\n"), #Single column - targets
+           ("Targets",          "^[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n"), #Single column - targets
+           ("Manifest",         "^\\[Header\\]"), #Manifest
+           ("Variants",         "^.+?\t.+?\t.+?\t[a-zA-Z0-9]+\t(null|chr[1-9XYM][0-9]?)\t(null|[0-9]+)\t(null|[0-9]+)\t(null|[+-])\t"), #Nine columns - variants
+           ("Canonical",        "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n"), #Two columns - canonical
+           ("Canonical",        "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z0-9_]+\\s*\n"), #Two columns - canonical
+           ("DesignStudio",     "^chr[0-9XYM]+\t[0-9]+\t[0-9]+[\t\n]"), #Six column Bedfile - design
+           ("Disease_Names",    "^#Variants Disease Name Translation\\s*\n"), #Disease_Names
+           ("SNPs",             "^chr[1-9XYM][0-9]?:[0-9]+ [ATCG\.]+>[ATCG\.]\\s*\n"), #SNPs
+           ("VCF",              "^##fileformat=VCFv[0-9\.]+\\s*\n"), #VCF
+           ("Options",          "#CoverMi options\\s*\n"), # CoverMi panel options
+          )
 
 class Panel(dict):
 
@@ -56,7 +54,7 @@ class Panel(dict):
                 for testline in testlines:
                     if not testline.endswith("\n"):
                         testline = testline+"\n"
-                    for regexp, filetype in zip(regexps, filetypes):
+                    for filetype, regexp in regexps:
                         if re.match(regexp, testline) is not None:
                             if alreadyfound != "":
                                 raise CoverMiException("Not a valid CoverMi panel\nUnable to uniquely identify file {0}, matches both {1} and {2} file formats".format(filepath, filetype, alreadyfound))

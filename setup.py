@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name="covermi",
-    version="1.12",
+    version="1.12.2",
     description="Coverage checking for next generation sequencing panels",
     url="http://github.com/eawilson/covermi",
     author="Ed Wilson",
