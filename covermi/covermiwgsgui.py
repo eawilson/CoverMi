@@ -1,7 +1,7 @@
 #!/usr/bin env python
 import sys, os, tkFileDialog, Tkinter, pdb, traceback
-import covermiwgsmain
-from panel import Panel
+from . import covermiwgsmain
+from .panel import Panel
 
 
 class DepthDialog(object):

@@ -1,22 +1,23 @@
 from setuptools import setup
+import os
+
+with open(os.path.join(os.path.dirname(__file__), "covermi", "include.py"), "rU") as f:
+    exec(f.read())
 
 setup(name="covermi",
-    version="1.12.2",
+    packages=["covermi"],
+    version=__version__,
     description="Coverage checking for next generation sequencing panels",
     url="http://github.com/eawilson/covermi",
     author="Ed Wilson",
     author_email="edwardadrianwilson@yahoo.co.uk",
     license="MIT",
-    packages=["covermi"],
     include_package_data=True,
     zip_safe=True,
     entry_points={"console_scripts" : ["covermi=covermi.covermigui:main",
-                                       "covermiverifygui=covermi.covermiverifygui:main", 
-                                       "covermiwgs=covermi.covermiwgsgui:main",
-                                       "covermi_make_canonical=covermi.make_canonical:main",
+                                       "annotatetsca=covermi.annotatetsca:main",
                                        "bringmiup=covermi.bringmiup:main",
-                                       "cosmic2variants=covermi.cosmic2variants:main",
-                                       "familycheck=covermi.familycheck:main",
-                                       "whosthedaddy=covermi.whosthedaddy:main"]}
+                                      ]
+                 }
 )
 

@@ -1,5 +1,13 @@
-import time, pdb, pkg_resources
+from __future__ import print_function, absolute_import, division
 
+import time, os, pdb
+
+try:
+    python3test = basestring
+except NameError:
+    basestring = str
+
+from .include import __version__
 
 class TextTable(object):
 
@@ -29,7 +37,7 @@ class TextTable(object):
                 biggest = max([len(fstring.format(table[row][col])) for row in range(0, rows)])
                 if not (biggest == 0 and delete_empty_cols):
                     for row in range(0, rows):
-                        newtab[row].append(fstring.format(table[row][col]).ljust(biggest) if (type(table[row][col])==str) else fstring.format(table[row][col]).rjust(biggest))
+                        newtab[row].append(fstring.format(table[row][col]).ljust(biggest) if isinstance(table[row][col], basestring) else fstring.format(table[row][col]).rjust(biggest))
         return newtab
 
 
@@ -62,28 +70,32 @@ class TextTable(object):
         return table
 
 
-def header(panel):
+def header(panel, identifier):
     table = TextTable()
-    for descriptor, item in (("Sample: ", "Sample"), ("Run: ", "Run"), ("Panel: ", "Panel"), ("Manifest: ", "Manifest"), ("Design Studio Bedfile:", "DesignStudio"),
-                             ("Known variants file: ", "Variants"), ("Panel type:", "ReportType"), ("Minimum Depth: ", "Depth")):
-        for catagory in ("Filenames", "Options"):
-            if item in panel[catagory]:
-                table.rows.append([descriptor, str(panel[catagory][item])])
-                break
-    table.rows += [["Date of CoverMi analysis: ", time.strftime("%d/%m/%Y")], ["CoverMi version: ", pkg_resources.require("CoverMi")[0].version]]
+    if identifier is not None:
+        table.rows.append(["Sample:", identifier.name])
+        table.rows.append(["Run:", identifier.run])
+    table.rows.append(["Panel:", panel.name])
+    for descriptor, key in (("Manifest: ", "manifest"), ("Design Studio Bedfile:", "designstudio"), ("Known variants file: ", "variants")):
+        if key in panel.files:
+            table.rows.append([descriptor, os.path.basename(panel.files[key])])
+    for descriptor, key in (("Panel type:", "reporttype"), ("Minimum Depth: ", "depth")):
+        if key in panel.properties:
+            table.rows.append([descriptor, str(panel.properties[key])])
+    table.rows += [["Date of CoverMi analysis: ", time.strftime("%d/%m/%Y")], ["CoverMi version: ", __version__]]
     return table.formated()
 
 
 def location(gr1, panel):
-    if "Exons" and "Transcripts" in panel:
-        exons = panel["AllExons"] if ("AllExons" in panel) else panel["Exons"]
-        transcripts = panel["AllTranscripts"] if ("AllTranscripts" in panel) else panel["Transcripts"]
-        loc = exons.overlapped_by(gr1).names_as_string
-        if loc =="":
-            loc = "{0} intron".format(transcripts.overlapped_by(gr1).names_as_string)
-            if loc == " intron":
-                loc = "not covering a "+("" if ("AllTranscripts" in panel) else"targeted ")+"gene"
-    else:
-        loc = ""
+    for exons, transcripts in (("exons", "transcripts"), ("allexons", "alltranscripts")):
+        loc = getattr(panel, exons).overlapped_by(gr1).names_as_string
+        if not loc:
+            loc = getattr(panel, transcripts).overlapped_by(gr1).names_as_string
+            if loc:
+                loc = "{} intron".format(loc)
+        if loc:
+            break
+    if not loc:
+        loc = "intergenic"
     return loc
 

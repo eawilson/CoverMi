@@ -1,510 +1,953 @@
-# { chr_name : [ [start, stop, depth], [start, stop, depth] ] }
+# { chr_number : [ [start, stop, depth], [start, stop, depth], ... ] }
+from __future__ import print_function, absolute_import, division
 
-import re, subprocess, os, tempfile, copy, pdb
-from gr import Gr
+import csv, struct, os, sys, pdb
+from collections import defaultdict, namedtuple
+from io import BufferedReader
+from itertools import islice, chain
+from collections import Counter
 
+from .gr import Gr, Chrom, Entry, MAX_LEN, PLUS, MINUS
+from .include import CoverMiException, eprint
 
-class CoverMiException(Exception):
-    pass
+try: # python2
+    from string import maketrans
+    range = xrange
+    PY3 = False
+except ImportError: # python3
+    maketrans = str.maketrans
+    basestring = str
+    PY3 = True
 
-
-CSTART = 0
-CSTOP = 1
-CDEPTH = 2
-
-NAME = 0
-DEPTH = 1
-BASES = 2
-RANGE = 3
-COMPONENTS = 4
-DISEASES = 5
-WEIGHTED_COMPONENTS = 6
-COVERED = True
-UNCOVERED = False
-        
-AM_NAME = 0
-AM_FDEPTH = 1
-AM_RDEPTH = 2
-AM_GR = 3
-
-
-class Cov(dict):
+try:
+    from Bio import bgzf
+    BGZF = True
+except ImportError:
+    import gzip        
+    BGZF = False
 
 
-    @staticmethod
-    def _amplicon_number(name):
-        chrom, start = re.match("(chr[0-9XYM]+):([0-9]+)-", name[0]).groups()[0:2]
-        return (Gr.KARYOTYPE[chrom]*Gr.MAX_CHR_LENGTH)+int(start)
+def bisect_left(a, x):
+    lo = 0
+    hi = len(a)
+    while lo < hi:
+        mid = (lo+hi)//2
+        if a[mid][1] < x: lo = mid+1
+        else: hi = mid
+    return lo
 
 
-    @classmethod
-    def load_bam(coverage, bam, gr, amplicons=False):
-        return coverage._load_bam_amplicons(bam, gr) if amplicons else  coverage._load_bam_exons(bam, gr)
-        
-
-    @classmethod
-    def _load_bam_exons(coverage, bamfile_name, exons):
-        cov = coverage()
-        bedfile_temp = tempfile.TemporaryFile()
-        exons.merged.save(bedfile_temp)
-        bedfile_temp.seek(0, 0)
-
-        bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=False)
-        
-        first_pass = True
-        last_chr_name = ""
-        while True:
-            splitline = bedtools.stdout.readline().rstrip("\n").split("\t")
-            if splitline == [""]:
-                if not first_pass:
-                    cov[last_chr_name].append([first_pos, last_pos, last_depth])
-                break
-            pos = int(splitline[1])+int(splitline[6])
-            depth = int(splitline[7])
-            chr_name = splitline[0]                 
-            if chr_name != last_chr_name or pos != last_pos + 1 or depth != last_depth:
-                if not first_pass:
-                    if last_chr_name not in cov:
-                        cov[last_chr_name] = []
-                    cov[last_chr_name].append([first_pos, last_pos, last_depth])
-                first_pass = False   
-                first_pos = pos
-            last_pos = pos
-            last_depth = depth
-            last_chr_name = chr_name                 
-            
-        bedfile_temp.close()
-        
-        for chr_name in cov:
-            current = cov[chr_name]
-            current.sort()
-            current.append([current[-1][CSTOP]+1, Gr.MAX_CHR_LENGTH, 0])
-            current.append([0, current[0][CSTART]-1, 0])
-            for index in range(0, len(current)-3):
-                if current[index][CSTOP] != current[index+1][CSTART]-1:
-                    current.append([current[index][CSTOP]+1, current[index+1][CSTART]-1, 0])
-            current.sort()
-        return cov
-        
-
-#    @classmethod
-#    def _load_bam_exons(coverage, bamfile_name, exons):
-#        cov = coverage()
-#        bedfile_temp = tempfile.TemporaryFile()
-#        exons.merged.save(bedfile_temp)
-#        bedfile_temp.seek(0, 0)
-
-#        bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=False)
-
-#        name = ""
-#        while True:
-#            splitline = bedtools.stdout.readline().rstrip("\n").split("\t")
-#            if splitline == [""] or splitline[3] != name:
-#                if name != "":
-#                    cov[chr_name].append([runstartpos, pos, depth])
-#                if splitline == [""]:
-#                    break
-#                chr_name = splitline[0]
-#                if chr_name not in cov:
-#                    cov[chr_name] = []
-#                runstartpos = int(splitline[1])+int(splitline[6])
-#                runstartdepth = int(splitline[7])
-#                cov[chr_name].append([runstartpos-1, runstartpos-1, 0])
-#        
-#            pos = int(splitline[1])+int(splitline[6])
-#            depth = int(splitline[7])
-#            if runstartdepth != depth:
-#                cov[chr_name].append([runstartpos, pos-1, runstartdepth])
-#                runstartpos = pos
-#                runstartdepth = depth
-#            name = splitline[3]
-#        bedfile_temp.close()
-#            
-#        for chr_name in cov:
-#            cov[chr_name].sort()
-#    
-#        for chr_name in cov:
-#            cov[chr_name][0][CSTART] = 0
-#            for index in range(1, len(cov[chr_name])):
-#                #if cov[chr_name][index][CSTART] != (cov[chr_name][index-1][CSTOP]+1) and (cov[chr_name][index][CSTART] != cov[chr_name][index][CSTOP] or cov[chr_name][index][CDEPTH] != 0):
-#                #    print cov[chr_name][index]###########################################????????????????????????????????????????????????????????????????????????????
-#                cov[chr_name][index][CSTART] = cov[chr_name][index-1][CSTOP]+1
-#            cov[chr_name].append([cov[chr_name][-1][CSTOP]+1, Gr.MAX_CHR_LENGTH, 0])
-#        return cov
+def fake_paired_end_reads(amplicons, depth):
+    for entry in amplicons.all_entries:
+        third = (entry.stop - entry.start + 1) // 3
+        for n in range(0, depth):
+            yield (entry.chrom, entry.start, entry.stop-third, MINUS if entry.strand==MINUS else PLUS)
+            yield (entry.chrom, entry.start+third, entry.stop, PLUS if entry.strand==MINUS else MINUS)
 
 
-    @classmethod
-    def _load_bam_amplicons(coverage, bamfile_name, amplicons):
-        cov = coverage()
-
-        amplicon_metrics = {}
-        for chr_name in amplicons:
-            for entry in amplicons[chr_name]:
-                amplicon_metrics[entry.name] = Amplicon_info([entry.name, "NA", "NA", Gr(entry)])
-
-        bedfile_temp = tempfile.TemporaryFile()
-        for chr_name in sorted(amplicons):
-            if len(amplicons[chr_name]) == 1:
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{2}\t{3}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0].name,
-                    amplicons[chr_name][0].start-1, 
-                    amplicons[chr_name][0].stop))
-
-            else:
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][0].name,
-                    amplicons[chr_name][0].start-1, 
-                    min(amplicons[chr_name][0].stop, amplicons[chr_name][1].start-1),
-                    amplicons[chr_name][0].start-1, 
-                    amplicons[chr_name][0].stop))
-
-                for index in range(1, len(amplicons[chr_name])-1):
-                    bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][index].name,
-                        amplicons[chr_name][index].start-1,
-                        min(amplicons[chr_name][index].stop, amplicons[chr_name][index+1].start-1),
-                        max(amplicons[chr_name][index].start, amplicons[chr_name][index-1].stop+1)-1, 
-                        amplicons[chr_name][index].stop))
-
-                bedfile_temp.write("{0}\t{2}\t{3}\t{1}\t.\t+\n{0}\t{4}\t{5}\t{1}\t.\t-\n".format(chr_name, amplicons[chr_name][-1].name,
-                    amplicons[chr_name][-1].start-1, 
-                    amplicons[chr_name][-1].stop,
-                    max(amplicons[chr_name][-1].start, amplicons[chr_name][-2].stop+1)-1, 
-                    amplicons[chr_name][-1].stop))
-        bedfile_temp.seek(0, 0)
-
-        bedtools = coverage._create_bedtools(bamfile_name, bedfile_temp, stranded=True)
-
-        # loop one through bedtools output and transcribe positions and depths into "firstpass" 
-        firstpass = {}# { "chr1" : [ [pos, depth], [pos, depth], [pos, depth], ...] }
-        name = "" 
-        while True:
-            splitline = bedtools.stdout.readline().rstrip("\n").split("\t")
-            if splitline == [""] or splitline[3] != name or splitline[5] != strand:
-                if name != "":
-                    if chr_name not in firstpass:
-                        firstpass[chr_name] = []
-                    firstpass[chr_name] += tempdata
-                    if amplicon_metrics[name][(strand=="-")+1] != "NA":  
-                        raise CoverMiException("Duplicate amplicon {0}".format(name))
-                    amplicon_metrics[name][(strand=="-")+1] = tempdata[len(tempdata)/2][1] if (len(tempdata)>0) else 0
-                        
-                if splitline == [""]:
-                    break
-                tempdata = []
-                chr_name = splitline[0]
-        
-            depth = int(splitline[7])
-            strand = splitline[5]
-            name = splitline[3]
-            if depth > 0: 
-                tempdata.append([int(splitline[1])+int(splitline[6]), depth])
-        bedfile_temp.close()
-
-        cov = coverage._firstpass_into_coverage(firstpass)
-        cov.amplicon_info = amplicon_metrics.values()
-        try:
-            cov.amplicon_info.sort(key=coverage._amplicon_number)
-        except AttributeError:
-            pass
-        return cov
+def extend(data, item):
+    if len(data) and item[2] == data[-1][2]:
+        data[-1][1] = item[1]
+    else:
+        data += [item]
 
 
-    @staticmethod
-    def _create_bedtools(bamfile_name, bedfile_temp, stranded=False):
-        if os.name == "nt":
-            bamfile_name = os.path.abspath(bamfile_name).replace("C:", "/cygdrive/c").replace("\\", "/")
-            if os.path.exists("C:\\cygwin64\\bin\\"):
-                cygwin_path = "C:\\cygwin64\\bin\\"
-            elif os.path.exists("C:\\cygwin\\bin\\"):
-                cygwin_path = "C:\\cygwin\\bin\\"
-            else:
-                raise CoverMiException("Unable to find Cygwin path")
-            def decorate(command): return "START /B {0}bash.exe -c \"PATH=/usr/bin:/usr/local/bin:$PATH; {1}; exit\"".format(cygwin_path, command)
+def normalised(data, depth):
+    newdata = defaultdict(zero_coverage)
+    for key, values in data.items():
+        newchrom = []
+        for entry in values:
+            extend(newchrom, [entry[0], entry[1], entry[2]>=depth])
+        newdata[key] = newchrom
+    return newdata
+
+
+def combined(mydata, otherdata):
+    newdata = defaultdict(zero_coverage)
+    for key in set(mydata.keys()+otherdata.keys()):
+         newchrom = []
+         otherchrom = otherdata[key].__iter__()
+         otherentry = [None, -1, None]
+         for myentry in mydata[key]:
+             while myentry[0] > otherentry[1]:
+                 otherentry = next(otherchrom)
+             while otherentry[1] < myentry[1]:
+                 extend(newchrom, [max(myentry[0], otherentry[0]), otherentry[1], myentry[2]+otherentry[2]])
+                 otherentry = next(otherchrom)
+             extend(newchrom,[max(myentry[0], otherentry[0]), myentry[1], myentry[2]+otherentry[2]])
+         newdata[key] = newchrom
+    return newdata
+
+
+class CumCov(object):
+
+    def __init__(self, depth):
+        self._data = defaultdict(zero_coverage)
+        self.number = 0
+        self.depth = depth
+
+
+    def add(self, other):
+        self.number += 1
+        self._data = combined(self._data, normalised(other.data, self.depth))
+        return self
+
+
+    @property
+    def data(self):
+        newdata = defaultdict(zero_coverage)
+        for key, chrom in self._data.items():
+            newdata[key] = [(entry[0], entry[1], entry[2]*100//self.number) for entry in chrom]
+        return newdata
+
+
+def zero_coverage(): return [[0, MAX_LEN+1, 0]]
+
+
+class AmpliconInfoList(list):
+    def failure_rate(self, depth):
+        return sum(i.failed(depth) for i in self)*100.0/len(self)
+
+
+class Cov(object):
+
+    def __init__(self, data=None, amplicons=(), locations=(), print_progress=False, q30=False, gc=False):
+        self.data = defaultdict(zero_coverage)
+
+        if data is None:
+            return
+
+        if isinstance(data, basestring):
+            bampath = data
+            bam = Bam(bampath, index=bool(locations))
+            data = bam.coverage(locations=locations, print_progress=print_progress)
         else:
-            def decorate(command): return command
-        version = subprocess.Popen(decorate("bedtools --version"), stdout=subprocess.PIPE, universal_newlines=True, shell=True).stdout.readline().strip()
-        if not version.startswith("bedtools v"):
-            raise CoverMiException("Unable to start bedtools")
-        major, minor, patch =  [int(num) for num in version[10:].split(".")]
-        if major > 2 or (major == 2 and minor >=24):
-            command = "bedtools coverage -d {0} -a '{2}' -b '{1}'"
-        else:
-            command = "bedtools coverage -d {0} -abam '{1}' -b '{2}'"
-            
-        command = decorate(command.format("-s" if stranded else "", bamfile_name, "stdin"))
-        return subprocess.Popen(command, stdout=subprocess.PIPE, stdin=bedfile_temp, universal_newlines=True, shell=True)
+            bam = None
+
+        fr_depth = {}
+        self.amplicon_info = AmpliconInfoList()
+        self.ontarget = 0
+        self.offtarget = 0
+        for amplicon in amplicons:
+            amplicon_info = AmpliconInfo(amplicon)
+            self.amplicon_info += [amplicon_info]
+            fr_depth[(amplicon.start, PLUS)] = amplicon_info
+            fr_depth[(amplicon.stop, MINUS)] = amplicon_info
+
+        for chrom, start, stop, strand in data:
+            depth = 1
+            cov = self.data[chrom]
+            upperx = -1
+            lowerx = -1
+            for x in range(len(cov) - 1, -1, -1):
+                if stop < cov[x][0]:
+                    continue
+                if stop >= cov[x][1] and start <= cov[x][0]:
+                    cov[x][2] += depth
+                    if start == cov[x][0]:
+                        break
+                else:
+                    if stop < cov[x][1]:
+                        upperx = x
+                    if start > cov[x][0]:
+                        lowerx = x
+                        break
+            if upperx != -1:
+                cov.insert(upperx, [cov[upperx][0], stop, cov[upperx][2] + depth])
+                cov[upperx+1][0] = stop + 1
+            if lowerx != -1:
+                cov.insert(lowerx+1, [start, cov[lowerx][1], cov[lowerx][2] + depth * (upperx!=lowerx)])
+                cov[lowerx][1] = start - 1
+                if upperx == lowerx:
+                    cov[lowerx][2] -= depth
+
+            if amplicons:
+                try:
+                    fr_depth[(start, PLUS)].f_depth += 1
+                    self.ontarget += 1
+                except KeyError:
+                    try:
+                        fr_depth[(stop, MINUS)].r_depth += 1
+                        self.ontarget += 1
+                    except KeyError:
+                        self.offtarget += 1                        
+
+        self.amplicon_info.sort()
+        if bam:
+            self.unmapped = bam.unmapped
+            self.mapped = bam.mapped
+            self.reads = self.mapped + self.unmapped
+            self.percent_unmapped = self.unmapped *100.0 / (self.reads or 1)
+        if amplicons:
+            self.percent_offtarget = self.offtarget * 100.0 / (self.ontarget + self.offtarget or 1)
+
+        if q30 or gc:
+            if bam:
+                bam.close()
+                bam = Bam(bampath, index=bool(locations))
+                q30_tot = 0
+                total = 0
+                gc_tot = 0
+                at_tot = 0
+
+                for read in bam.read():
+                    if q30:
+                        quality = read.unclipped_quality
+                        q30_tot += len([qual for qual in quality if qual >= 30])
+                        total += len(quality)
+                    if gc:
+                        count = Counter(read.unclipped_sequence)
+                        gc_tot += count["G"] + count["C"]
+                        at_tot += count["A"] + count["T"]
+                if q30:
+                    self.q30 = q30_tot * 100.0 / total if total>0 else 0
+                if gc:
+                    self.gc = float(gc_tot) / ((at_tot+gc_tot) or 1)
+        if bam: bam.close()
 
 
-    @classmethod
-    def _firstpass_into_coverage(coverage, fp):
-        cov = coverage()
-
-        for chr_name in fp:
-            fp[chr_name].sort()
-            cov[chr_name] =[[0, 0, 0]]
-            lastpos = 0
-
-            for index in range(0,len(fp[chr_name])):
-                if index < len(fp[chr_name])-2 and fp[chr_name][index][0] == fp[chr_name][index+1][0]:#if depth exists for adjacent + and - reads then combine
-                    index += 1
-                    fp[chr_name][index][1] += fp[chr_name][index-1][1]
-
-                if fp[chr_name][index][0] > lastpos+1 and cov[chr_name][-1][CDEPTH] > 0:
-                    cov[chr_name].append([lastpos+1, 0, 0])
-                    
-                if fp[chr_name][index][1] <> cov[chr_name][-1][CDEPTH]:
-                    cov[chr_name].append([fp[chr_name][index][0], 0, fp[chr_name][index][1]])
-                lastpos=fp[chr_name][index][0]
-
-            if cov[chr_name][-1][CDEPTH] > 0:
-                cov[chr_name].append([lastpos+1, 0, 0])
-            cov[chr_name].append([Gr.MAX_CHR_LENGTH, Gr.MAX_CHR_LENGTH, 0])
-
-        for chr_name in cov: #Loop over coverage object start positions and add in stop positions
-            for index in range(0, len(cov[chr_name])-1):
-                cov[chr_name][index][CSTOP] = cov[chr_name][index+1][CSTART]-1
-        return cov
+#    def load(self, path):
+#        self.__init__(data=())
+#        with open(path, "rb") as f:
+#            for line in csv.reader(f, delimiter="\t"):
+#                self.data[line[0]].append([int(value) for value in line[1:4]])
 
 
-    @classmethod
-    def perfect_coverage(coverage, gr1, perfect_depth=1000):
-        firstpass = {}
-        for chr_name in gr1:
-            firstpass[chr_name] = []
-            for entry in gr1[chr_name]:
-                read_length = (entry.stop - entry.start + 1) * 2 / 3
-                for pos in range(entry.start, entry.start+read_length+1):
-                    firstpass[chr_name].append([pos, perfect_depth])
-                for pos in range(entry.stop-read_length, entry.stop+1):
-                    firstpass[chr_name].append([pos, perfect_depth])
-        return coverage._firstpass_into_coverage(firstpass)
+#    def save(self, path):
+#        with open(path, "wb") as f:
+#            writer = csv.writer(f, delimiter="\t")
+#            for chrom in self.data:
+#                for entry in self.data[chrom]:
+#                    writer.writerow([chrom]+entry)
 
 
-    @classmethod
-    def load(coverage, path):
-        cov = coverage()
-        with file(path, "rU") as f:
-            for row in f:
-                chr_name, cstart, cstop, depth = row.rstrip("\n").split("\t")
-                if chr_name not in cov:
-                    cov[chr_name] = []
-                cov[chr_name].append([int(cstart), int(cstop) ,int(depth)])
-        return cov
+#    def save_range(self, path, gr): # Used to dump a standard region to disk for diagnostic purposes
+#        with open(path, "wb") as f:
+#            writer = csv.writer(f, delimiter="\t")
+#            for entry in gr:
+#                for start, stop, depth in self.data[entry.chrom]:
+#                    if stop >= entry.start:
+#                        if start > entry.stop:
+#                            break
+#                        writer.writerow([entry.chrom, max(start, entry.start), min(stop, entry.stop), depth])
 
 
-    def __getitem__(self, chr_name):
-        try:
-            return super(type(self), self).__getitem__(chr_name)
-        except KeyError:
-            return [[0, Gr.MAX_CHR_LENGTH-1, 0], [Gr.MAX_CHR_LENGTH, Gr.MAX_CHR_LENGTH, 0]]
+    def as_range(self, min_depth=1):
+        gr = Gr()
+        for chrom, data in self.data.items():
+            start = None
+            for cstart, cstop, depth in data:
+                if depth < min_depth and start is not None:
+                    gr.add(Entry(chrom, start, stop))
+                    start = None
+                elif depth >= min_depth:
+                    if start is None:
+                        start = cstart
+                    stop = cstop
+        gr.sort()
+        return gr
 
 
     def calculate(self, gr1, min_depth, exons=False, total=False):
-        results = []
-        resultkey = {}
+        if isinstance(gr1, Entry): gr1 = Gr(gr1)
+        results = defaultdict(CoverageInfo)
         for entry in gr1.all_entries:
-            name = entry.name if (not total) else ""
+            if entry.stop >= entry.start: # if an insertion then calculate from base before to base afterwards
+                start = entry.start
+                stop = entry.stop
+            else:
+                start = entry.stop
+                stop = entry.start
+            name = entry.name if (not total) else "Total"
             name = name if (not exons) else "{0} e{1}".format(name, entry.exon)
-            if name not in resultkey:
-                resultkey[name] = len(results)
-                results.append(Coverage_info([ name, [0, 0], [0, 0], [Gr(), Gr()], [0, 0], None, [0, 0] ]))
-                try:
-                    results[resultkey[name]][DISEASES] = entry.diseases
-                except AttributeError:
-                    pass
-            line = results[resultkey[name]]
+            info = results[name]
+            info.name = name
+            info.diseases = getattr(entry, "diseases", "")
 
             allcovered = True
-            for cstart, cstop, cdepth in self[entry.chrom]:
-                if cstart > entry.stop:
+            cchrom = self.data[entry.chrom]
+            bisect = bisect_left(cchrom, start) # leftmost coverage.stop >= entry.start
+            for cstart, cstop, cdepth in cchrom[bisect:]:
+                if cstart > stop:
                     break
-                elif cstop >= entry.start:
-                    bases = min(entry.stop, cstop) - max(entry.start, cstart) + 1
-                    line[DEPTH][cdepth>=min_depth] += (bases*cdepth)
-                    line[BASES][cdepth>=min_depth] += bases
-                    allcovered = allcovered and (cdepth>=min_depth)
-                    if entry.chrom in (line[RANGE][cdepth>=min_depth]) and cstart == line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop+1:
-                            line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop = min(entry.stop, cstop)
+                elif cstop >= start:
+                    bases = min(stop, cstop) - max(start, cstart) + 1
+                    if cdepth>=min_depth:
+                        info.bases_covered += bases
+                        info.depth_covered += bases * cdepth
+                        info.range_covered.add(Entry(entry.chrom, max(start, cstart), min(stop, cstop), entry.name, entry.strand))
                     else:
-                        line[RANGE][cdepth>=min_depth].construct(copy.copy(entry)) 
-                        line[RANGE][cdepth>=min_depth][entry.chrom][-1].start = max(entry.start, cstart) 
-                        line[RANGE][cdepth>=min_depth][entry.chrom][-1].stop = min(entry.stop, cstop)
-            line[COMPONENTS][COVERED] += int(allcovered)
-            line[COMPONENTS][UNCOVERED] += int(not(allcovered))
-            try:
-                line[WEIGHTED_COMPONENTS][COVERED] += int(allcovered) * entry.weight
-                line[WEIGHTED_COMPONENTS][UNCOVERED] += int(not(allcovered)) * entry.weight
-            except AttributeError:
-                pass
+                        info.bases_uncovered += bases
+                        info.depth_uncovered += bases * cdepth
+                        info.range_uncovered.add(Entry(entry.chrom, max(start, cstart), min(stop, cstop), entry.name, entry.strand))
+                        allcovered = False
+            if allcovered:
+                info.components_covered += 1
+                info.weighted_components_covered += getattr(entry, "weight", 1)
+            else:
+                info.components_uncovered += 1
+                info.weighted_components_uncovered += getattr(entry, "weight", 1)
 
-        for result in results:
-            for index in [0,1]:
-                result[DEPTH][index] /= max(result[BASES][index], 1)
-        results.sort()
+        results = sorted(results.values())
+        for info in results:
+            info.depth_covered = info.depth_covered // max(info.bases_covered, 1)
+            info.depth_uncovered = info.depth_covered // max(info.bases_uncovered, 1)
+            info.range_covered = info.range_covered.merged
+            info.range_uncovered = info.range_uncovered.merged
         return results if (not total) else results[0]
 
 
-    def save_plot(self, gr1, filename): #Replaced by decorated plots but may be useful for debugging plotting
-        with file(filename, "wt") as f:
-            f.write("chrom\tpos\tdepth\tname\n")
-            for chr_name in gr1:
-                for entry in gr1[chr_name]:
-                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.start-1, 0, entry.name))
-                    for cstart, cstop, cdepth in self[chr_name]:
-                        if cstop >= entry.start:
-                            f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, max(entry.start, cstart), cdepth, entry.name))
-                        if cstop >= entry.stop:
-                            if cstart < entry.stop:
-                                f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop, cdepth, entry.name))
-                            break
-                    f.write("{0}\t{1}\t{2}\t{3}\n".format(entry.chrom, entry.stop+1, 0, entry.name))
+class AmpliconInfo(object):
 
+    def __repr__(self):
+        return "{} forward={} reverse={}".format(self.entry, self.f_depth, self.r_depth)
 
-    def filter_by_germline(self, germ, germmin):
-        newcov = type(self)()
+    def __init__(self, entry):
+        self.entry = entry
+        self.f_depth = 0
+        self.r_depth = 0
 
-        for chrom in self:
+    def __lt__(self, other):
+        return self.entry < other.entry
 
-            newcov[chrom] = []
-            selfindex = 0
-            germindex = 0
-            start = 0
-            current = 0
-            depth = 0
-
-            selflist = self[chrom]
-            germlist = germ[chrom]
-            while True:
-  
-                newdepth = 0 if (germlist[germindex][CDEPTH] < germmin) else selflist[selfindex][CDEPTH]
-                if depth != newdepth:
-                    newcov[chrom].append([start, current-1, depth])
-                    start = current
-                    depth = newdepth
-
-                if germlist[germindex][CSTOP] < selflist[selfindex][CSTOP]:
-                    germindex += 1
-                    current = germlist[germindex][CSTART]
-                elif germlist[germindex][CSTOP] > selflist[selfindex][CSTOP]:
-                    selfindex += 1
-                    current = selflist[selfindex][CSTART]
-                elif len(selflist) > selfindex+1:
-                    selfindex += 1
-                    germindex += 1
-                    current = selflist[selfindex][CSTART]
-                else:
-                    newcov[chrom].append([start, selflist[selfindex][CSTOP], depth])
-                    break
-        return newcov
-
-
-    def save(self, path):
-        with file(path, "wt") as f:
-            for chr_name in self:
-                for entry in self[chr_name]:
-                    f.write("{0}\t{1}\t{2}\t{3}\n".format(chr_name, entry[CSTART], entry[CSTOP], entry[CDEPTH]))
-
-
-class Amplicon_info(list):
     @property
     def name(self):
-        return self[AM_NAME]
+        return self.entry.name
+
     @property
     def chrom(self):
-        return self[AM_NAME].split(":")[0]
+        return self.entry.chrom
+
     @property
-    def f_depth(self):
-        return self[AM_FDEPTH]
+    def min_depth(self):
+        return min(self.f_depth, self.r_depth)
+
     @property
-    def r_depth(self):
-        return self[AM_RDEPTH]
-    @property
-    def minimum_depth(self):
-        return self[AM_FDEPTH] if self[AM_FDEPTH]<self[AM_RDEPTH] else self[AM_RDEPTH]
-    @property
-    def maximum_depth(self):
-        return self[AM_RDEPTH] if self[AM_FDEPTH]<self[AM_RDEPTH] else self[AM_FDEPTH]
+    def max_depth(self):
+        return max(self.f_depth, self.r_depth)
+
     @property
     def mean_depth(self):
-        return (self[AM_FDEPTH]+self[AM_RDEPTH])/2
+        return (self.f_depth + self.r_depth) // 2
+
     @property
     def ratio(self):
-        return float(min(self[AM_FDEPTH], self[AM_RDEPTH]))/max(self[AM_FDEPTH], self[AM_RDEPTH], 1)
+        return float(self.min_depth) // max(self.max_depth, 1)
+
     @property
     def gr(self):
-        return self[AM_GR]
+        return Gr(self.entry)
+
+    def failed(self, depth):
+        return (self.f_depth < depth) or (self.r_depth < depth)
 
 
-class Coverage_info(list):
+class CoverageInfo(object):
+
+    def __repr__(self):
+        return "{} {}%".format(self.name, self.percent_covered)
+
+    def __init__(self):
+        self.name = ""
+        self.diseases = ""
+        self.depth_covered = 0
+        self.depth_uncovered = 0
+        self.bases_covered = 0
+        self.bases_uncovered = 0
+        self.range_covered = Gr()
+        self.range_uncovered = Gr()
+        self.components_covered = 0
+        self.components_uncovered = 0
+        self.weighted_components_covered = 0
+        self.weighted_components_uncovered = 0
+
+    def __lt__(self, other):
+        return self.name < other.name
+    
     @property
-    def name(self):
-        return self[NAME]
-    @property
-    def diseases(self):
-        return self[DISEASES]
+    def depth(self):
+        return ((self.depth_covered * self.bases_covered) + (self.depth_uncovered + self.bases_uncovered)) // (self.bases or 1)
+
     @property
     def percent_covered(self):
-        return float(self[BASES][COVERED]*100)/sum(self[BASES])
+        return float(self.bases_covered*100) / (self.bases or 1)
+
     @property
     def percent_uncovered(self):
-        return float(self[BASES][UNCOVERED]*100)/sum(self[BASES])
+        return 100 - self.percent_covered
+
     @property
-    def depth_covered(self):
-        return self[DEPTH][COVERED]
-    @property
-    def depth_uncovered(self):
-        return self[DEPTH][UNCOVERED]
-    @property
-    def bases_covered(self):
-        return self[BASES][COVERED]
-    @property
-    def bases_uncovered(self):
-        return self[BASES][UNCOVERED]
-    @property
-    def range_covered(self):
-        return self[RANGE][COVERED]
-    @property
-    def range_uncovered(self):
-        return self[RANGE][UNCOVERED]
-    @property
-    def range_combined(self):
-        return self[RANGE][COVERED].combined_with(self[RANGE][UNCOVERED]).merged
+    def range(self):
+        return self.range_covered.combined_with(self.range_uncovered).merged
+
     @property
     def bases(self):
-        return sum(self[BASES])
-    @property
-    def components_covered(self):
-        return self[COMPONENTS][COVERED]
-    @property
-    def components_uncovered(self):
-        return self[COMPONENTS][UNCOVERED]
+        return self.bases_covered + self.bases_uncovered
+
     @property
     def components(self):
-        return sum(self[COMPONENTS])
+        return self.components_covered + self.components_uncovered
+
     @property
     def percent_components_covered(self):
-        return float(self[COMPONENTS][COVERED]*100)/sum(self[COMPONENTS])
+        return float(self.components_covered*100) / (self.components or 1)
+
     @property
     def percent_components_uncovered(self):
-        return float(self[COMPONENTS][UNCOVERED]*100)/sum(self[COMPONENTS])
-    @property
-    def weighted_components_covered(self):
-        return self[WEIGHTED_COMPONENTS][COVERED]
-    @property
-    def weighted_components_uncovered(self):
-        return self[WEIGHTED_COMPONENTS][UNCOVERED]
+        return 100 - self.percent_components_covered
+
     @property
     def weighted_components(self):
-        return sum(self[WEIGHTED_COMPONENTS])
+        return self.weighted_components_covered + self.weighted_components_uncovered
+
     @property
     def percent_weighted_components_covered(self):
-        return float(self[WEIGHTED_COMPONENTS][COVERED]*100)/sum(self[WEIGHTED_COMPONENTS])
+        return float(self.weighted_components_covered*100) / (self.weighted_components or 1)
+
     @property
     def percent_weighted_components_uncovered(self):
-        return float(self[WEIGHTED_COMPONENTS][UNCOVERED]*100)/sum(self[WEIGHTED_COMPONENTS])
+        return 100 - self.percent_weighted_components_covered
+
     @property
     def completely_covered(self):
-        return self[BASES][UNCOVERED]==0
+        return not(self.incompletely_covered)
+
     @property
     def incompletely_covered(self):
-        return self[BASES][UNCOVERED]>0
+        return bool(self.bases_uncovered)
 
+
+
+
+
+def reg2bins(beg, end): # accepts 1 based start and stop
+    beg -= 1
+    end -= 2
+    bins = [0]
+
+    for k in range(1 + (beg>>26),  2 + (end>>26)): bins += [k]
+    for k in range(9 + (beg>>23), 10 + (end>>23)): bins += [k]
+    for k in range(73 + (beg>>20), 74 + (end>>20)): bins += [k]
+    for k in range(585 + (beg>>17), 586 + (end>>17)): bins += [k]
+    for k in range(4681 + (beg>>14), 4682 + (end>>14)): bins += [k]
+    return bins
+
+
+def reg2bin(beg, end): # accepts 1 based start and stop
+    beg -= 1
+    end -= 1
+    if ((beg>>14) == (end>>14)):
+        return ((1<<15)-1)//7 + (beg>>14)
+    if ((beg>>17) == (end>>17)):
+        return ((1<<12)-1)//7 + (beg>>17)
+    if ((beg>>20) == (end>>20)):
+        return ((1<<9 )-1)//7 + (beg>>20)
+    if ((beg>>23) == (end>>23)):
+        return ((1<<6 )-1)//7 + (beg>>23)
+    if ((beg>>26) == (end>>26)):
+        return ((1<<3 )-1)//7 + (beg>>26)
+    return 0
+
+
+class Bai(object):
+
+    def __init__(self, fn, chr_2_ref):
+        try:
+            self.chr_2_ref = chr_2_ref
+            with open(fn, "rb") as bai:
+                if bai.read(4) != b"BAI\1":
+                    raise CoverMiException("{} is not a BAI file!".format(os.path.basename(fn)))
+                
+                n_ref = struct.unpack("<i", bai.read(4))[0] # number of reference sequences
+                self.bins = [defaultdict(tuple) for x in range(0, n_ref)]
+                self.intervals = [() for x in range(0, n_ref)]
+                for ref_id in range(0, n_ref):
+
+                    n_bin = struct.unpack("<i", bai.read(4))[0] # number of bins for that reference sequence
+                    for distinct_bin in range(0, n_bin):
+                    
+                        bin, n_chunk = struct.unpack("<Ii", bai.read(8)) # bin_number, number of chunks within that bin
+                        if n_chunk:
+                            if bin == 37450: # pseudo bin for unmapped reads
+                                bai.read(32)
+                            else:
+                                chunks = [None] * n_chunk
+                                for chunk in range(0, n_chunk):
+                                    chunks[chunk] = struct.unpack("<QQ", bai.read(16))
+                                self.bins[ref_id][bin] = chunks
+
+                    n_intv = struct.unpack("<i", bai.read(4))[0] # length of linear index
+                    if n_intv:
+                        intervals = [None] * n_intv
+                        for intv in range(0, n_intv):
+                            intervals[intv] = struct.unpack("<Q", bai.read(8))[0]
+                        self.intervals[ref_id] = intervals
+
+        except IOError:
+            raise CoverMiException("IOError reading {}".format(os.path.basename(fn)))
+
+        except struct.error:
+            raise CoverMiException("{} is truncated".format(os.path.basename(fn)))
+        
+
+
+    def chunks(self, locations):
+        chunks = set()
+        for loc in locations:
+            ref_id = self.chr_2_ref[loc.chrom]
+            intervals = self.intervals[ref_id]
+            interval = (loc.start-1)//16384
+            #lower_bound = intervals[interval] if interval < len(intervals) else intervals[-1]
+            for bin in reg2bins(loc.start, loc.stop):
+                for vstartstop in self.bins[ref_id][bin]:
+                    #if vstartstop[1] >= lower_bound:
+                        chunks.add(vstartstop)
+        return sorted(chunks)
+
+
+BamStats = namedtuple("BamStats", "mapq unmapped duplicate")
+byte2base = "=ACMGRSVTWYHKDBN"
+
+SWAPSTRAND = maketrans("ATGC", "TACG")
+def invert(nucleotides):
+    return nucleotides[::-1].translate(SWAPSTRAND)
+
+
+Cigar = namedtuple("Cigar", "code length")
+
+
+class BamFlags(object):
+    __slots__ = ("flags",)
+
+    def __repr__(self):
+        return "Bamflags(flags={}, unmapped={}, reverse={})".format(bin(self.flags), self.unmapped, self.reverse_complement)
+
+    def __init__(self, flags):
+        self.flags = flags
+
+    @property
+    def multiple_segments(self):
+        return bool(self.flags & 0x1)
+
+    @property
+    def all_segments_aligned(self):
+        return bool(self.flags & 0x2)
+
+    @property
+    def unmapped(self):
+        return bool(self.flags & 0x4)
+
+    @property
+    def next_segment_unmapped(self):
+        return bool(self.flags & 0x8)
+
+    @property
+    def reverse_complement(self):
+        return bool(self.flags & 0x10)
+
+    @property
+    def next_segment_reverse_complement(self):
+        return bool(self.flags & 0x20)
+
+    @property
+    def first_segment(self):
+        return bool(self.flags & 0x40)
+
+    @property
+    def last_segment(self):
+        return bool(self.flags & 0x80)
+
+    @property
+    def secondary_alignment(self):
+        return bool(self.flags & 0x100)
+
+    @property
+    def not_passing_filters(self):
+        return bool(self.flags & 0x200)
+
+    @property
+    def not_passing_filters(self):
+        return bool(self.flags & 0x200)
+
+    @property
+    def duplicate(self):
+        return bool(self.flags & 0x400)
+
+    @property
+    def supplementary_alignment(self):
+        return bool(self.flags & 0x800)
+
+
+class BamRead(object):
+    __slots__ = ("chrom", "pos", "flags", "len_read_name", "n_cigar_op", "len_seq", "data", "_cigar")
+
+    def __repr__(self):
+        return "BamRead(chrom={}, pos='{}', flags={}, cigar={}, sequence='{}', quality='{}')".format(self.chrom, self.pos, repr(self.flags), self.cigar,
+                                                                                                           self.unclipped_sequence, self.unclipped_quality)
+
+    def __init__(self, chrom, pos, flags, len_read_name, n_cigar_op, len_seq, data):
+        self.chrom = chrom
+        self.pos = pos
+        self.flags = BamFlags(flags)
+        self.len_read_name = len_read_name
+        self.n_cigar_op = n_cigar_op
+        self.len_seq = len_seq
+        self.data = data
+
+    @property
+    def name(self):
+        return self.data[:self.len_read_name-1]
+
+    @property
+    def strand(self):
+        return "-" if self.flags.reverse_complement else "+"
+
+    @property
+    def cigar(self):
+        try: return self._cigar
+        except AttributeError: pass
+        start = self.len_read_name
+        stop = start + (self.n_cigar_op * 4)
+        self._cigar = [Cigar(cigar & 0xF, cigar // 0x10) for cigar in struct.unpack("<" + "I" * self.n_cigar_op, self.data[start:stop])]
+        return self._cigar
+
+    @property
+    def sequence(self):
+        cigar = self.cigar
+        if not cigar:
+            start = stop = 0
+        else:
+            if cigar[0].code == 4: start = cigar[0].length
+            elif cigar[0].code == 5 and cigar[1].code == 4: start = cigar[1].length
+            else: start = 0
+            if cigar[-1].code == 4: stop = cigar[-1].length
+            elif cigar[-1].code == 5 and cigar[-2].code == 4: stop = cigar[-2].length
+            else: stop = 0
+        return self._sequence(startclip=start, stopclip=stop)
+
+    @property
+    def quality(self):
+        cigar = self.cigar
+        if not cigar:
+            start = stop = 0
+        else:
+            if cigar[0].code == 4: start = cigar[0].length
+            elif cigar[0].code == 5 and cigar[1].code == 4: start = cigar[1].length
+            else: start = 0
+            if cigar[-1].code == 4: stop = cigar[-1].length
+            elif cigar[-1].code == 5 and cigar[-2].code == 4: stop = cigar[-2].length
+            else: stop = 0
+        return self._quality(startclip=start, stopclip=stop)
+
+    @property
+    def raw_sequence(self):
+        return self._sequence() if self.strand == "+" else invert(self._sequence())
+
+    @property
+    def raw_quality(self):
+        return self._quality() if self.strand == "+" else self._quality[-1::-1]
+
+    @property
+    def unclipped_sequence(self):
+        return self._sequence()
+
+    @property
+    def unclipped_quality(self):
+        return self._quality()
+
+    def _sequence(self, startclip=0, stopclip=0):
+        len_seq = self.len_seq - stopclip
+        sequence_bytes = ((len_seq + 1) // 2)
+        start = self.len_read_name + (self.n_cigar_op * 4)
+        stop = start + sequence_bytes
+        sequence_list = [(byte2base[byte // 0x10], byte2base[byte & 0xF]) for byte in struct.unpack("<" + "B" * sequence_bytes, self.data[start:stop])]
+        return "".join(islice(chain(*sequence_list), startclip, len_seq))
+
+    def _quality(self, startclip=0, stopclip=0):
+        start = self.len_read_name + (self.n_cigar_op * 4) + ((self.len_seq + 1) // 2) + startclip
+        stop = start + self.len_seq - stopclip
+        return struct.unpack("<" + "B" * (stop - start), self.data[start:stop])
+
+    @property
+    def start(self):
+        return self.pos
+
+    @property
+    def stop(self):
+        length = 0
+        for op in self.cigar:
+            if op.code in (0, 2, 7, 8):
+                length += op.length
+        return self.start + length - 1
+
+
+class Bam(object):
+
+    COVERAGE = 1
+    STATS = 2
+
+    Q30 = 1
+    READ_LENGTH = 2
+
+    def __init__(self, fn, index=True):
+        self.bam = None
+        self.bai = None
+
+        try:
+            self.bam = bgzf.open(fn, "rb") if BGZF else BufferedReader(gzip.open(fn, "rb"))
+            if self.bam.read(4) != b"BAM\1":
+                self.bam.close()
+                raise CoverMiException("{} is not a BAM file!".format(os.path.basename(fn)))
+            
+            len_header_text = struct.unpack("<i", self.bam.read(4))[0]
+            header_text = self.bam.read(len_header_text)
+            num_ref_seq = struct.unpack("<i", self.bam.read(4))[0]
+            chr_2_ref = {}
+            self.ref_2_chr = [None] * num_ref_seq
+            for x in range(0, num_ref_seq):
+                len_ref_name = struct.unpack("<i", self.bam.read(4))[0]
+                ref_name = self.bam.read(len_ref_name - 1)
+                if PY3:
+                    ref_name = ref_name.decode("utf-8")
+                try:
+                    chrom = Chrom(ref_name)
+                except KeyError:
+                    chrom = ref_name
+                self.ref_2_chr[x] = chrom
+                chr_2_ref[chrom] = x
+                self.bam.read(5)
+
+        except IOError:
+            if self.bam: self.bam.close()
+            raise CoverMiException("IOError reading {}".format(os.path.basename(fn)))
+
+        except (IOError, struct.error):
+            if self.bam: self.bam.close()
+            raise CoverMiException("{} has a truncated header".format(os.path.basename(fn)))
+             
+        if index:
+            if BGZF:
+                try:
+                    self.bai = Bai(fn+".bai", chr_2_ref)
+                    eprint("Using index file {}".format(os.path.basename(fn+".bai")))
+                except CoverMiException as e:
+                    eprint(str(e))
+            else:
+                eprint("Biopython not installed therefore cannot use bam indexes")
+
+    def __enter__(self):
+        return self
+
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+
+    def close(self):
+        self.bam.close()
+
+
+    def coverage(self, locations=(), print_progress=False):
+        self.unmapped = 0
+        self.mapped = 0
+        if locations and self.bai:
+            chunks = self.bai.chunks(locations)
+        else:
+            chunks = ((0, 0),)
+            print_progress = False
+        try:
+            for chunk_no, chunk in enumerate(chunks):
+                vstart, vstop = chunk
+                if vstart:
+                    self.bam.seek(vstart)
+                if print_progress:
+                    sys.stdout.write("Reading chunk {} of {}\r".format(chunk_no+1, len(chunks)))
+                    sys.stdout.flush()
+                while True:
+                    if vstop and self.bam.tell() > vstop:
+                        break
+                    read = self.bam.read(36)
+                    if len(read) == 0:
+                        break
+                    
+                    block_size, ref_id, pos, bin_mq_nl, flag_nc, len_seq, next_ref_id, next_pos, len_template = struct.unpack("<iiiIIiiii", read)
+                    flag = flag_nc >> 16#// 0x10000
+                    unmapped = (ref_id == -1) or (flag & 0x4)
+#                    duplicate = flag & 0x400
+#                    secondary = flag & 0x100
+#                    supplementary = flag & 0x800
+
+                    if unmapped: # unmapped read
+                        self.bam.read(block_size-32)
+                        self.unmapped += 1
+                    else:
+                        self.mapped += 1
+                        len_read_name = bin_mq_nl & 0xFF
+                        n_cigar_op = flag_nc & 0xFFFF
+                        direction = MINUS if flag & 0x10 else PLUS
+                        start = pos + 1
+
+                        read_name = self.bam.read(len_read_name - 1)
+                        self.bam.read(1)
+
+                        cigar_bytes = n_cigar_op * 4
+                        length = 0
+                        for cigar in struct.unpack("<" + "I" * n_cigar_op, self.bam.read(cigar_bytes)):
+                            cigar_op = cigar & 0xF
+                            if cigar_op in (0, 2, 7, 8):
+                                length += cigar // 0x10
+                            elif cigar_op == 3: # skip an intron
+                                if length:
+                                    yield (self.ref_2_chr[ref_id], start, start + length - 1, direction)
+                                start += length + (cigar//0x10)
+                                length = 0
+                        if length:
+                            yield (self.ref_2_chr[ref_id], start, start + length - 1, direction)
+
+                        self.bam.read(block_size - 32 - len_read_name - cigar_bytes)
+            if print_progress:
+                print()
+
+        except (IOError, struct.error):
+            self.bam.close()
+            raise CoverMiException("{} is truncated".format(os.path.basename(fn)))
+
+
+    def read(self, locations=()):
+        try:
+            for vstart, vstop in self.bai.chunks(locations) if locations and self.bai else ((0, 0),):
+                if vstart:
+                    self.bam.seek(vstart)
+                while True:
+                    if vstop and bam.tell() > vstop:
+                        break
+                    read = self.bam.read(36)
+                    if len(read) == 0:
+                        break
+                    
+                    block_size, ref_id, pos, bin_mq_nl, flag_nc, len_seq, next_ref_id, next_pos, len_template = struct.unpack("<iiiIIiiii", read)
+
+                    yield BamRead(chrom=self.ref_2_chr[ref_id], pos=pos + 1, flags=flag_nc // 0x10000, len_read_name=bin_mq_nl & 0xFF, 
+                                  n_cigar_op=flag_nc & 0xFFFF, len_seq=len_seq, data=self.bam.read(block_size - 32))
+
+        except (IOError, struct.error):
+            self.bam.close()
+            raise CoverMiException("{} is truncated".format(fn))
+
+
+    def info(self, what, locations=()):
+        if what not in (Bam.Q30, Bam.READ_LENGTH):
+            raise CoverMiException("Bam: Unknown option: {}".format(what))
+        passing_q30 = 0
+        total = 0
+        try:
+            for vstart, vstop in self.bai.chunks(locations) if locations and self.bai else ((0, 0),):
+                if vstart:
+                    self.bam.seek(vstart)
+                while True:
+                    if vstop and bam.tell() > vstop:
+                        break
+                    read = self.bam.read(36)
+                    if len(read) == 0:
+                        break
+                    
+                    block_size, ref_id, pos, bin_mq_nl, flag_nc, len_seq, next_ref_id, next_pos, len_template = struct.unpack("<iiiIIiiii", read)
+
+                    flag = flag_nc // 0x10000
+                    unmapped = (ref_id == -1) or flag & 0x4
+                    duplicate = flag & 0x400
+                    secondary = flag & 0x100
+                    supplementary = flag & 0x800
+                    n_cigar_op = flag_nc & 0xFFFF
+
+                    if unmapped or duplicate or secondary or supplementary or n_cigar_op==0:
+                        self.bam.read(block_size-32)
+                        continue
+
+                    len_read_name = bin_mq_nl & 0xFF
+                    self.bam.read(len_read_name)
+
+                    cigar_bytes = n_cigar_op * 4
+                    cigar_string = [(cigar & 0xF, cigar // 0x10) for cigar in struct.unpack("<" + "I" * n_cigar_op, self.bam.read(cigar_bytes))]
+
+                    start = 1 if cigar_string[0][0] == 5 else 0
+                    if cigar_string[start][0] == 4:
+                        soft_clipped = cigar_string[start][1]
+                        start += 1
+                    else:
+                        soft_clipped = 0
+                    length = sum([cigar[1] for cigar in cigar_string[start:] if cigar[0] in (0, 2, 7, 8)])
+                    if what == Bam.READ_LENGTH: return length
+
+                    self.bam.read((len_seq+1)//2)
+                    quality = struct.unpack("<" + "B" * len_seq, self.bam.read(len_seq))[soft_clipped:length+soft_clipped]
+                    for qual in quality:
+                        if qual >= 30: passing_q30 += 1
+                    total += len(quality)
+
+                    self.bam.read(block_size - 32 - len_read_name - cigar_bytes - ((len_seq+1)/2) - len_seq)
+
+        except (IOError, struct.error):
+            self.bam.close()
+            raise CoverMiException("{} is truncated".format(fn))
+
+        return passing_q30 * 100.0 / total if total>0 else 0
+
+    def sequence(self, locations=(), options=()):
+        try:
+            for vstart, vstop in self.bai.chunks(locations) if locations and self.bai else ((0, 0),):
+                if vstart:
+                    self.bam.seek(vstart)
+                while True:
+                    if vstop and bam.tell() > vstop:
+                        break
+                    read = self.bam.read(36)
+                    if len(read) == 0:
+                        break
+                    
+                    block_size, ref_id, pos, bin_mq_nl, flag_nc, len_seq, next_ref_id, next_pos, len_template = struct.unpack("<iiiIIiiii", read)
+
+                    flag = flag_nc // 0x10000
+                    unmapped = (ref_id == -1) or flag & 0x4
+                    reverse = flag_nc & 0x10
+                    duplicate = flag & 0x400
+                    secondary = flag & 0x100
+                    supplementary = flag & 0x800
+                    n_cigar_op = flag_nc & 0xFFFF
+
+#                    if unmapped or duplicate or sinvertecondary or supplementary or n_cigar_op==0:
+#                        self.bam.read(block_size-32)invert
+#                        continue
+
+                    len_read_name = bin_mq_nl & 0xFF
+                    self.bam.read(len_read_name)
+                    cigar_bytes = n_cigar_op * 4
+                    cigar_string = [(cigar & 0xF, cigar // 0x10) for cigar in struct.unpack("<" + "I" * n_cigar_op, self.bam.read(cigar_bytes))]
+
+#                    start = 1 if cigar_string[0][0] == 5 else 0
+#                    if cigar_string[start][0] == 4:
+#                        soft_clipped = cigar_string[start][1]
+#                        start += 1
+#                    else:
+#                        soft_clipped = 0
+#                    length = sum([cigar[1] for cigar in cigar_string[start:] if cigar[0] in (0, 2, 7, 8)])
+#                    if what == Bam.READ_LENGTH: return length
+                    sequence_bytes = (len_seq+1)//2
+                    sequence = struct.unpack("<" + "B" * sequence_bytes, self.bam.read(sequence_bytes))
+                    sequence_list = []
+                    for byte in sequence:
+                        sequence_list += [byte2base[byte // 0x10], byte2base[byte & 0xF]]
+
+                    sequence = "".join(sequence_list[:len_seq+1])
+                    yield sequence if not reverse else invert(sequence)
+                    quality = struct.unpack("<" + "B" * len_seq, self.bam.read(len_seq))#[soft_clipped:length+soft_clipped]
+#                    for qual in quality:
+#                        if qual >= 30: passing_q30 += 1
+#                    total += len(quality)
+
+                    self.bam.read(block_size - 32 - len_read_name - cigar_bytes - sequence_bytes - len_seq)
+
+        except (IOError, struct.error):
+            self.bam.close()
+            raise CoverMiException("{} is truncated".format(fn))
 

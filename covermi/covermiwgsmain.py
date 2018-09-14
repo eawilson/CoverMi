@@ -4,9 +4,7 @@ from cov import Cov
 from panel import Panel
 from files import Files
 import clinicalreport, covermiplot
-
-class CoverMiException(Exception):
-    pass
+from covermiexception import CoverMiException
 
 
 def create_output_dir(output_path):

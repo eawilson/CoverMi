@@ -13,174 +13,406 @@
 #	 AllTranscripts: 	genomic range
 #	 AllExons:		genomic range
 #	 Excluded:		list of excluded amplicons
-
+from __future__ import print_function, absolute_import, division
 
 import os, re, pdb
-from gr import Gr
+from functools import wraps
+
+from .gr import Gr, bed, vcf, illuminamanifest, variants, reference, load_targets, load_principal, HETERO_LL, HETERO_UL, HOMO_LL
+from .include import *
+
+                                                   #Eleven columns - refflat
+REGEXPS = (("reference",     "refseq",  re.compile(GENE_SYMBOL+"\t"+REFSEQ_TRANSCRIPT+"\tchr.+?\t[+-]\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9,]+\t[0-9,]+$")), 
+           ("reference",     "ensembl", re.compile("#!genome-build")), #Ensembl gtf  
+           ("targets",       "",        re.compile(GENE_SYMBOL+"$")), #Single column - targets
+           ("targets",       "refseq",  re.compile(GENE_SYMBOL+" +"+REFSEQ_TRANSCRIPT+"$")), #Single column - targets
+           ("targets",       "ensembl", re.compile(GENE_SYMBOL+" +"+ENSEMBL_TRANSCRIPT+"$")), #Single column - targets
+#           ("canonical",     "refseq",  re.compile(GENE_SYMBOL+"\t"+REFSEQ_TRANSCRIPT+"$")), #Two column - canonical
+#           ("canonical",     "ensembl", re.compile(GENE_SYMBOL+"\t"+ENSEMBL_TRANSCRIPT+"$")), #Two column - canonical
+           ("manifest",      "",        re.compile("\\[Header\\]$")), #Manifest
+           ("variants",      "",        re.compile("HGMD ID.+Disease")), #HGMD
+           ("variants",      "",        re.compile("Gene name.+Primary site.+Primary histology")), #Cosmic
+           ("designstudio",  "",        re.compile("chr[0-9XYM]+\t[0-9]+\t[0-9]+")), #Six+ column Bedfile - design
+           ("diseases",      "",        re.compile("#diseases")), #Disease_Names
+           ("vcf",           "",        re.compile("##fileformat=VCFv[0-9\.]+$")), #VCF
+           #("properties",    "",        re.compile("[^#].*=.+")), # CoverMi panel options
+           ("properties",    "",        re.compile("#covermi")), # CoverMi panel options
+           ("principal",     "refseq",  re.compile(GENE_SYMBOL+"\t[0-9]+\t"+REFSEQ_TRANSCRIPT+".+\t(PRINCIPAL|ALTERNATIVE):")),
+           ("principal",     "ensembl", re.compile(GENE_SYMBOL+"\tENSG[0-9]+\t"+ENSEMBL_TRANSCRIPT+".+\t(PRINCIPAL|ALTERNATIVE):")),
+          )
+
+ASSEMBLIES = (("hg19",   "GRCh37"),
+              ("grch37", "GRCh37"),
+              ("hg38",   "GRCh38"),
+              ("grch38", "GRCh38"),
+             )
 
 
-class CoverMiException(Exception):
+class StrObj(str):
     pass
 
 
-regexps = (("Excluded",         "^chr[1-9XYM][0-9]?:[0-9]+-[0-9]+\\s*\n"), #Single column of amplicon names in the format chr1:12345-67890 - excluded
-           ("Reference",        "^.+?\t.+?\tchr.+?\t[+-]\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9]+\t[0-9,]+\t[0-9,]+\\s*\n"), #Eleven columns - refflat
-           ("Depth",            "^[0-9]+\\s*\n"), #Single number - depth
-           ("Targets",          "^[a-zA-Z][a-zA-Z0-9-]*\\s*\n"), #Single column - targets
-           ("Targets",          "^[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n"), #Single column - targets
-           ("Manifest",         "^\\[Header\\]"), #Manifest
-           ("Variants",         "^.+?\t.+?\t.+?\t[a-zA-Z0-9]+\t(null|chr[1-9XYM][0-9]?)\t(null|[0-9]+)\t(null|[0-9]+)\t(null|[+-])\t"), #Nine columns - variants
-           ("Canonical",        "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z][a-zA-Z0-9-]* +[a-zA-Z0-9_]+\\s*\n"), #Two columns - canonical
-           ("Canonical",        "^[a-zA-Z][a-zA-Z0-9]*\t[a-zA-Z0-9_]+\\s*\n"), #Two columns - canonical
-           ("DesignStudio",     "^chr[0-9XYM]+\t[0-9]+\t[0-9]+[\t\n]"), #Six column Bedfile - design
-           ("Disease_Names",    "^#Variants Disease Name Translation\\s*\n"), #Disease_Names
-           ("SNPs",             "^chr[1-9XYM][0-9]?:[0-9]+ [ATCG\.]+>[ATCG\.]\\s*\n"), #SNPs
-           ("VCF",              "^##fileformat=VCFv[0-9\.]+\\s*\n"), #VCF
-           ("Options",          "#CoverMi options\\s*\n"), # CoverMi panel options
-          )
-
-class Panel(dict):
+def Panels(path, **kwargs):
+    panels = {}
+    for name in os.listdir(path):
+        panel_path = os.path.join(path, name)
+        if os.path.isdir(panel_path):
+            try:
+                panels[name] = Panel(panel_path, **kwargs)
+            except CoverMiException:
+                pass
+    return panels
 
 
-    def __init__(self, panel_path):
-        self.panel_path = panel_path
-        for root, dirnames, filenames in os.walk(panel_path):
-            for filename in filenames:
-                filepath = os.path.join(root, filename)
-                with file(filepath, "rU") as f:
-                    testlines = [f.readline(), f.readline()]
-            
-                alreadyfound = ""
-                for testline in testlines:
-                    if not testline.endswith("\n"):
-                        testline = testline+"\n"
-                    for filetype, regexp in regexps:
-                        if re.match(regexp, testline) is not None:
-                            if alreadyfound != "":
-                                raise CoverMiException("Not a valid CoverMi panel\nUnable to uniquely identify file {0}, matches both {1} and {2} file formats".format(filepath, filetype, alreadyfound))
-                            if filetype in self:
-                                raise CoverMiException("Not a valid CoverMi panel\nFiles {0} and {1} both match {2} file format".format(filepath, self[filetype], filetype))
-                            alreadyfound = filetype
-                            self[filetype] = filepath
-                    if alreadyfound != "":
-                        break
-        return
+def cached(func):
+    @wraps(func)
+    def wrapped(self, *args, **kwargs):
+        cachedname = "_"+func.__name__
+        if not hasattr(self, cachedname):
+            setattr(self, cachedname, func(self, *args, **kwargs))
+        return getattr(self, cachedname)
+    return wrapped
 
 
-    def read_options(self):
-        options = {}
-        if "Depth" in self:
-            with file(self["Depth"], "rU") as f:
-                options["Depth"] = f.read().strip()
-        if "Options" in self:
-            print "Loading options file: {0}".format(os.path.basename(self["Options"]))
-            with file(self["Options"], "rU") as f:
-                for line in f:
-                    line = line.strip()
-                    if line != "" and not line.startswith("#"):
-                        line = line.split("=")
-                        if len(line) != 2:
-                            raise CoverMiException("Malformed options file: {0}".format("=".join(line)))
-                        if line[0] in options:
-                            raise CoverMiException("Duplicate option: {0}".format(line[0]))
-                        options[line[0]] = line[1]
-        if "Depth" in options:
-            if  options["Depth"].isdigit():
-                options["Depth"] = int(options["Depth"])
-            else:
-                raise CoverMiException("Depth is not numeric: {0}".format(panel["Options"]["Depth"]))
-        return options
+class Panel(object):
+
+    def __init__(self, path, required=(), verbose=True, splice_site_buffer=0):
+        self.path = os.path.abspath(path)
+        self._eprint = eprint if verbose else lambda *args: None
+        self.splice_site_buffer = splice_site_buffer
+        self.files = {}
+        self.name = os.path.basename(path)
+        for fn in os.listdir(path):
+            full_path = os.path.join(path, fn)
+            if os.path.isfile(full_path):
+                filetype = None
+                loops = 0
+                with open(full_path, "rt") as f:
+                    for testrow in f.read(1000).split("\n"): # Don't get screwed by really big binary files
+                        testrow = testrow.strip()
+                        loops += 1
+                        for thisfiletype, thissource, regexp in REGEXPS:
+                            match = regexp.match(testrow)
+                            if match:
+                                if match and filetype not in (thisfiletype, None):
+                                    raise CoverMiException("ERROR. File {} matches both {} and {} format".format(os.path.basename(full_path), thisfiletype, filetype))
+                                filetype = StrObj(thisfiletype)
+                                filetype.transcript_source = thissource
+                        if loops == 2 or match:
+                            break
+                if filetype is not None:
+                    if filetype in self.files:
+                        raise CoverMiException("ERROR. in {} panel - {} and {} are both of {} type".format(self.name, os.path.basename(self.files[filetype]), fn, filetype))
+                    self.files[filetype] = os.path.abspath(full_path)
+
+        if not self.files:
+            raise CoverMiException("ERROR. {} panel is empty".format(self.name))
+        for filetype in required:
+            if filetype not in self.files:
+                raise CoverMiException("ERROR. {} panel does not contain a {} file".format(self.name, filetype))
 
 
-    def write_options(self, options):
-        if "Options" not in self:
-            self["Options"] = os.path.join(self.panel_path, "covermi_options.txt")
-            if os.path.lexists(self["Options"]):
-                raise CoverMiException("File covermi_options.txt exists but is not of correct format")
-        with file(self["Options"], "wt") as f: 
-            f.write("#CoverMi options\n")
-            for key, value in options.iteritems():
-                f.write("{0}={1}\n".format(key, value))
-        if "Depth" in self:
-            os.unlink(self["Depth"])
-
-
-    def load(self, design=False):
-        panel = {}    
-
-        if "Reference" not in self:
-            raise CoverMiException("Unable to identify a Reference file in {0}".format(self.panel_path))
-        if design and "Manifest" not in self and "DesignStudio" not in self:
-            raise CoverMiException("Unable to identify a Manifest file or a Design Studio Bedfile in {0}".format(self.panel_path))
-        if "Manifest" in self and "DesignStudio" in self:
-            raise CoverMiException("Both Manifest and Design Studio Files found in {0}".format(self.panel_path))
-
-        panel["Options"] = self.read_options()
-
-        if "Manifest" in self:
-            print "Loading manifest file: {0}".format(os.path.basename(self["Manifest"]))
-            panel["Amplicons"] = Gr.load_manifest(self["Manifest"])
-            if "Excluded" in self:
-                excluded = []
-                with file(self["Excluded"], "rU") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line != "" and not line.startswith("#"):
-                            excluded.append(line)
-                if design:
-                    panel["ExcludedAmplicons"] = panel("Amplicons").subset(excluded)
-                panel["Amplicons"] = panel("Amplicons").subset(excluded, exclude=True)
-
-        elif "DesignStudio" in self:
-            print "Loading Design Studio amplicons bedfile: {0}".format(os.path.basename(self["DesignStudio"]))
-            panel["Amplicons"] = Gr.load_bedfile(self["DesignStudio"])
-        elif "Targets" in self:
-            print "No manifest or design studio bedfile in panel. Will perform coverage analysis over all exons of genes in targets file"
+    @property
+    @cached
+    def targets(self):
+        if "targets" in self.files:
+            self._eprint("Loading targets file: {}".format(os.path.basename(self.files["targets"])))
+            return load_targets(self.files["targets"])
         else:
-            raise CoverMiException("WARNING. No manifest or design studio bedfile or targeted genes file in panel. Aborting.")
+            raise CoverMiException("ERROR. {} panel has no targets file".format(self.name))
 
-        if "Reference" in self:
-            print "Loading reference file: {0}".format(os.path.basename(self["Reference"]))
-            if "Targets" in self:
-                print "Loading targeted genes file: {0}".format(os.path.basename(self["Targets"]))
-            if "Canonical" in self:
-                print "Loading canonical gene list: {0}".format(os.path.basename(self["Canonical"]))
+
+    @property
+    @cached
+    def principal(self):
+        if "principal" in self.files:
+            self._eprint("Loading principal transcripts list: {}".format(os.path.basename(self.files["principal"])))
+            return load_principal(self.files["principal"])
+        else:
+            raise CoverMiException("ERROR. {} panel has no principal transcripts file".format(self.name))
+
+
+    @property
+    @cached
+    def amplicons(self):
+        if "manifest" in self.files and "designstudio" in self.files:
+            raise CoverMiException("ERROR. {} panel contains both manifest and design studio bedfile".format(self.name))
+        elif "manifest" in self.files:
+            self._eprint("Loading manifest: {}".format(os.path.basename(self.files["manifest"])))
+            return Gr(illuminamanifest(self.files["manifest"]))
+        elif "designstudio" in self.files:
+            self._eprint("Loading design studio bedfile: {}".format(os.path.basename(self.files["designstudio"])))
+            return Gr(bed(self.files["designstudio"]))
+        else:
+            raise CoverMiException("ERROR. {} panel does not contain a manifest or design studio bedfile".format(self.name))
+
+
+    @property
+    @cached
+    def offtarget(self):
+        if "manifest" in self.files:
+            self._eprint("Loading manifest: {}".format(os.path.basename(self.files["manifest"])))
+            return Gr(illuminamanifest(self.files["manifest"], ontarget=False, offtarget=True))
+        else:
+            raise CoverMiException("ERROR. {} panel does not contain a manifest".format(self.name))
+        
+
+    @property
+    @cached
+    def expected(self):
+        return self.amplicons.combined_with(self.offtarget)
+
+
+    @property
+    @cached
+    def unexpected(self):
+        return self.expected.inverted
+
+
+    def _reference(self, what, everything=False):
+        if "reference" in self.files:
+            self._eprint("Loading reference file: {}".format(os.path.basename(self.files["reference"])))
+            kwargs = {"splice_site_buffer": self.splice_site_buffer}
+            if "principal" in self:
+                kwargs["principal"] = self.principal
+
+            if everything:
+                gr = Gr(reference(self.files["reference"], what, **kwargs))
+            elif "targets" in self.files:
+                gr = Gr(reference(self.files["reference"], what, targets=self.files["targets"], **kwargs))
+            elif "amplicons" in self:
+                self._eprint("WARNING. {} panel contains no targets file. Loading all genes touching an amplicon".format(self.name))
+                if what == "transcripts":
+                    gr = self.alltranscripts.touched_by(self.amplicons)
+                elif what == "codingregions":
+                    gr = self.allcodingregions.touched_by(self.amplicons)
+                elif what == "exons":
+                    gr = self.allexons.touched_by(self.alltranscripts.touched_by(self.amplicons))
+                elif what == "codingexons":
+                    gr = self.allcodingexons.touched_by(self.allcodingregions.touched_by(self.amplicons))
+                else:
+                    raise ValueError("Bad argumnent {} to _reference in Panel".format(waht))
             else:
-                print "WARNING. No canonical gene list found. Loading all transcripts of targeted genes"
-            panel["Exons"], panel["Transcripts"] = Gr.load_refflat(self["Reference"], 
-                                                                   file(self["Targets"], "rU") if ("Targets" in self) else None, 
-                                                                   file(self["Canonical"], "rU") if ("Canonical" in self) else None)
-
-            if "Targets" not in self and "Amplicons" in panel:
-                print "WARNING. No file identifying targeted genes. All genes touched by an amplicon will be assumed to be of interest"
-                panel["Transcripts"] = panel["Transcripts"].touched_by(panel["Amplicons"])
-                panel["Exons"] = panel["Exons"].touched_by(panel["Transcripts"]).subset(panel["Transcripts"].names)
-            if design:
-                panel["AllExons"], panel["AllTranscripts"] = Gr.load_refflat(self["Reference"], None, file(self["Canonical"], "rU") if ("Canonical" in self) else "")
-
-        if "Variants" in self:
-            print "Loading variants file: {0}".format(os.path.basename(self["Variants"]))
-            if "Disease_Names" in self:
-                print "Loading disease names file: {0}".format(os.path.basename(self["Disease_Names"]))
-            panel["Variants_Disease"] = Gr.load_variants(self["Variants"], "disease",
-                                                         disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
-            panel["Variants_Gene"] = Gr.load_variants(self["Variants"], "gene", genes_of_interest=panel["Transcripts"].names, 
-                                                      disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
-            panel["Variants_Mutation"] = Gr.load_variants(self["Variants"], "mutation", genes_of_interest=panel["Transcripts"].names,
-                                                          disease_names=file(self["Disease_Names"], "rU") if ("Disease_Names" in self) else None)
-            
-            # Check to try and see if the variants file is aligned against the correct reference genome
-            targeted_variants = panel["Variants_Gene"].subset(panel["Transcripts"].names)
-            variants_in_correct_location = targeted_variants.touched_by(panel["Transcripts"]).number_of_components * 100 / targeted_variants.number_of_components
-            if variants_in_correct_location < 100:
-                print "WARNING. Only {}% of targeted variants are within targeted genes. ?Correct reference genome".format(variants_in_correct_location)
-
-        panel["Filenames"] = { "Panel" : os.path.basename(self.panel_path.rstrip(os.pathsep)) }
-        for filetype in self:
-            panel["Filenames"][filetype] = os.path.splitext(os.path.basename(self[filetype]))[0]
-
-        return panel
+                self._eprint("WARNING. {} panel contains no targets or amplicons files. Loading all genes".format(self.name))
+                gr = getattr(self, "all{}".format(what))
+            return gr
+        else:
+            raise CoverMiException("ERROR. {} panel does not contain a reference file".format(self.name))
 
 
+    @property
+    @cached
+    def transcripts(self):
+        return self._reference("transcripts")
 
+
+    @property
+    @cached
+    def codingregions(self):
+        return self._reference("codingregions")
+
+
+    @property
+    @cached
+    def exons(self):
+        return self._reference("exons") 
+
+
+    @property
+    @cached
+    def codingexons(self):
+        return self._reference("codingexons") 
+
+
+    @property
+    @cached
+    def targeted_transcripts(self):
+        try:
+            return self.transcripts.overlapped_by(self.amplicons)
+        except CoverMiException:
+            return self.transcripts
+
+
+    @property
+    @cached
+    def targeted_codingregions(self):
+        try:
+            return self.codingregions.overlapped_by(self.amplicons)
+        except CoverMiException:
+            return self.codingregions
+
+
+    @property
+    @cached
+    def targeted_exons(self):
+        try:
+            return self.exons.overlapped_by(self.amplicons)
+        except CoverMiException:
+            return self.exons
+
+
+    @property
+    @cached
+    def targeted_codingexons(self):
+        try:
+            return self.codingexons.overlapped_by(self.amplicons)
+        except CoverMiException:
+            return self.codingexons
+
+
+    @property
+    @cached
+    def alltranscripts(self):
+        return self._reference("transcripts", everything=True) 
+ 
+
+    @property
+    @cached
+    def allcodingregions(self):
+        return self._reference("codingregions", everything=True)
+
+
+    @property
+    @cached
+    def allexons(self):
+        return self._reference("exons", everything=True) 
+
+
+    @property
+    @cached
+    def allcodingexons(self):
+        return self._reference("codingexons", everything=True) 
+
+
+    def _variants(self, what):
+        if "variants" in self.files:
+            self._eprint("Loading variants file: {}".format(os.path.basename(self.files["variants"])))
+            kwargs = {}
+            if "diseases" in self.files:
+                self._eprint("Loading diseases file: {}".format(os.path.basename(self.files["diseases"])))
+                kwargs["diseases"] = self.files["diseases"]
+            if what != "disease":
+                kwargs["genes"] = [entry.gene for entry in self.transcripts]
+
+            gr = Gr(variants(self.files["variants"], what, **kwargs))
+
+            if what != "disease" and gr and "transcripts" in self:
+                variants_in_correct_location = gr.touched_by(self.transcripts).components * 100 // gr.components
+                if variants_in_correct_location < 98:
+                    self._eprint("WARNING. Only {}% of variants are within targeted genes. ?Correct reference genome".format(variants_in_correct_location))
+            return gr
+        else:
+            raise CoverMiException("ERROR. {} panel does not contain a variants file".format(self.name))
+
+    @property
+    @cached
+    def variants_disease(self):
+        return self._variants("disease")
+
+
+    @property
+    @cached
+    def variants_gene(self):
+        return self._variants("gene")
+
+
+    @property
+    @cached
+    def variants_mutation(self):
+        return self._variants("mutation")
+
+
+    @property
+    @cached
+    def targeted_variants_disease(self):
+        try:
+            return self.variants_disease.subranges_covered_by(self.amplicons)
+        except CoverMiException:
+            return self.variants_disease
+
+
+    @property
+    @cached
+    def targeted_variants_gene(self):
+        try:
+            return self.variants_gene.subranges_covered_by(self.amplicons)
+        except CoverMiException:
+            return self.variants_gene
+
+
+    @property
+    @cached
+    def targeted_variants_mutation(self):
+        try:
+            return self.variants_mutation.subranges_covered_by(self.amplicons)
+        except CoverMiException:
+            return self.variants_mutation
+
+
+    @property
+    def depth(self):
+        try:
+            return int(self.properties["depth"])
+        except KeyError:
+            raise CoverMiException("ERROR {} panel has no depth".format(self.name))
+        except ValueError:
+            raise CoverMiException("ERROR {} panel has a non-numeric depth".format(self.name))
+
+
+    @property
+    @cached
+    def properties(self):
+        properties = {"name": self.name}
+
+        def update(key, val): # raise error if different values for same property
+            if val:
+                if key in properties and properties[key] != val:
+                    raise CoverMiException("ERROR. {} panel has values of {} and {} for {}".format(properties.name, properties[key], val, key))
+                properties[key] = val
+
+        for filetype, filepath in self.files.items():
+            filename = os.path.basename(filepath).lower()
+            for text, assembly in ASSEMBLIES:
+                if text in filename:
+                    update("assembly", assembly)
+            update("transcript_source", filetype.transcript_source)
+
+        if "properties" in self.files:
+            self._eprint("Loading properties file: {}".format(os.path.basename(self.files["properties"])))
+            with open(self.files["properties"], "rU") as f:
+                key = None
+                for row in f:
+                    row = row.rstrip()
+                    lsrow = row.lstrip()
+                    if row and lsrow[0] != "#":
+                        if row == lsrow:
+                            pos = lsrow.find("=")
+                            if pos < 1 or pos == len(lsrow) - 1:
+                                self._eprint("Malformed properties file: {}".format(row))
+                                continue
+                            else:
+                                key = lsrow[:pos].lower()
+                                update(key, lsrow[pos+1:])
+                        elif key:
+                            if isinstance(properties[key], list):
+                                properties[key] += [lsrow]
+                            else:
+                                properties[key] = [properties[key], lsrow]
+                        else:
+                            self._eprint("Malformed properties file: {}".format(row))
+                            continue
+
+        for key, val in (("hetero_ll", HETERO_LL), ("hetero_ul", HETERO_UL), ("homo_ll", HOMO_LL)):
+            if key not in properties:
+                update(key, val)
+
+        return properties
+
+
+    def __contains__(self, attr):
+        try:
+            test = getattr(self, attr)
+        except CoverMiException:
+            return False
+        return True
 
