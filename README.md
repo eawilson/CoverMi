@@ -12,7 +12,7 @@ CoverMi provides coverage checking for next generation sequencing data. It has b
 
 *Requests package (used to access NCBI AND UniProt databases)
 
-*VEP http://www.ensembl.org%2Fvep (PERL scripts used for variant annotation)
+*VEP http://www.ensembl.org/vep (PERL scripts used for variant annotation)
 
 ## Installation
 
