@@ -88,18 +88,21 @@ class Panel(object):
                 filetype = None
                 loops = 0
                 with open(full_path, "rt") as f:
-                    for testrow in f.read(1000).split("\n"): # Don't get screwed by really big binary files
-                        testrow = testrow.strip()
-                        loops += 1
-                        for thisfiletype, thissource, regexp in REGEXPS:
-                            match = regexp.match(testrow)
-                            if match:
-                                if match and filetype not in (thisfiletype, None):
-                                    raise CoverMiException("ERROR. File {} matches both {} and {} format".format(os.path.basename(full_path), thisfiletype, filetype))
-                                filetype = StrObj(thisfiletype)
-                                filetype.transcript_source = thissource
-                        if loops == 2 or match:
-                            break
+                    try:
+                        for testrow in f.read(1000).split("\n"): # Don't get screwed by really big binary files
+                            testrow = testrow.strip()
+                            loops += 1
+                            for thisfiletype, thissource, regexp in REGEXPS:
+                                match = regexp.match(testrow)
+                                if match:
+                                    if match and filetype not in (thisfiletype, None):
+                                        raise CoverMiException("ERROR. File {} matches both {} and {} format".format(os.path.basename(full_path), thisfiletype, filetype))
+                                    filetype = StrObj(thisfiletype)
+                                    filetype.transcript_source = thissource
+                            if loops == 2 or match:
+                                break
+                    except UnicodeDecodeError:
+                        pass
                 if filetype is not None:
                     if filetype in self.files:
                         raise CoverMiException("ERROR. in {} panel - {} and {} are both of {} type".format(self.name, os.path.basename(self.files[filetype]), fn, filetype))
@@ -376,7 +379,7 @@ class Panel(object):
                 if text in filename:
                     update("assembly", assembly)
             update("transcript_source", filetype.transcript_source)
-
+        
         if "properties" in self.files:
             self._eprint("Loading properties file: {}".format(os.path.basename(self.files["properties"])))
             with open(self.files["properties"], "rU") as f:

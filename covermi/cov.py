@@ -64,7 +64,7 @@ def normalised(data, depth):
 
 def combined(mydata, otherdata):
     newdata = defaultdict(zero_coverage)
-    for key in set(mydata.keys()+otherdata.keys()):
+    for key in set(chain(mydata.keys(), otherdata.keys())):
          newchrom = []
          otherchrom = otherdata[key].__iter__()
          otherentry = [None, -1, None]
@@ -238,7 +238,10 @@ class Cov(object):
             start = None
             for cstart, cstop, depth in data:
                 if depth < min_depth and start is not None:
-                    gr.add(Entry(chrom, start, stop))
+                    try:
+                        gr.add(Entry(chrom, start, stop))
+                    except KeyError:
+                        break
                     start = None
                 elif depth >= min_depth:
                     if start is None:
@@ -690,6 +693,7 @@ class Bam(object):
     READ_LENGTH = 2
 
     def __init__(self, fn, index=True):
+        self.fn = fn
         self.bam = None
         self.bai = None
 
@@ -810,7 +814,7 @@ class Bam(object):
 
         except (IOError, struct.error):
             self.bam.close()
-            raise CoverMiException("{} is truncated".format(os.path.basename(fn)))
+            raise CoverMiException("{} is truncated".format(os.path.basename(self.fn)))
 
 
     def read(self, locations=()):

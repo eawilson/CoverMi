@@ -16,6 +16,7 @@ try: # python2
     PLUS = "+"
     MINUS = "-"
     DOT = "."
+    CSVFILEMODE = "b"
 except ImportError: # python3
     maketrans = str.maketrans
     basestring = str
@@ -23,6 +24,7 @@ except ImportError: # python3
     PLUS = sys.intern("+")
     MINUS = sys.intern("-")
     DOT = sys.intern(".")
+    CSVFILEMODE = "t"
     
 from .include import *
 
@@ -622,7 +624,7 @@ class Gr(object):
         try:
             writer = csv.writer(f, delimiter="\t")
         except TypeError:
-            with open(f, "wb") as realfile:
+            with open(f, "w"+CSVFILEMODE) as realfile:
                 self.save(realfile, filetype=filetype)
             return
         
@@ -778,10 +780,9 @@ def variants(path, what, genes=(), diseases=()):
     translate = Translate()
     with FileContext(diseases, CSV_READ_MODE) as f:
         for row in csv.reader(f, delimiter="="):
-            if len(row) == 2:
-                val = row[1].strip()
-                if val:
-                    translate[row[0].strip()] = val
+            row = [col.strip() for col in row]
+            if len(row) == 2 and not row[0].startswith("#"):
+                translate[row[0]] = row[1]
 
     def cosmicparser():
         if "Histology subtype" in reader.fieldnames:
@@ -930,44 +931,101 @@ def firstwhere(f, lower, upper, func):
 
 
 
-def vcf(path, locations=(None,), zygosity_data={}):
+class CalculateVaf(object):
+    def __init__(self, path, format_index=9):
+        self.FORMAT_INDEX = format_index
+        with FileContext(path, "rt") as f:
+            row = "#"
+            while row.startswith("#"):
+                row = f.readline()
+        if row != "":
+            self._func = self.choose_algorithm(row.split("\t"))
+            
+            
+    def __call__(self, row):
+        return self._func(row)
+        
+        
+    def choose_algorithm(self, row):
+        infodict = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
+        
+        for self.key1, self.key2, algorithm in (("FRO", "FAO", self.ro_ao_depth), ("RO", "AO", self.ro_ao_depth), ("FDP", "FAO", self.dp_ao_depth), ("DP", "AO", self.dp_ao_depth)):
+            if self.key1 in infodict and self.key2 in infodict:
+                return algorithm
+        
+        if len(row) >= self.FORMAT_INDEX: # has a format section
+            formatdict = dict(zip(row[8].split(":"), row[self.FORMAT_INDEX].split(":")))
+            
+            # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
+            # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
+            if len(row[4].split(",")) + 1 == len(formatdict.get("AD", "").split(",")): # must have depth for ref and each alt.
+                return self.ad_depth
+            
+            if "DP4" in formatdict:
+                return self.dp4_format_depth
+            
+        if "DP4" in infodict:
+            return self.dp4_info_depth
+            
+        if len(row) >= self.FORMAT_INDEX:
+            if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["DP", "DP2", "TIR"]):
+                return self.strelka_depth
+            
+        return self.no_depth
+            
+    
+    def ro_ao_depth(self, row):
+        info = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
+        ref_depth = int(info[self.key1])
+        alt_depths =  [int(d) for d in info[self.key2].split(",")]
+        return (ref_depth + sum(alt_depths), alt_depths)
+
+
+    def dp_ao_depth(self, row):
+        info = dict(kv for kv in row[7] if len(kv) == 2)
+        tot_depth = int(info[self.key1])
+        alt_depths =  [int(d) for d in info[self.altkey].split(",")]
+        return (tot_depth, alt_depths)
+
+
+    def ad_depth(self, row):
+        ad = [int(depth) for depth in row[self.FORMAT_INDEX].split(":")[row[8].split(":").index("AD")].split(",")]
+        return (sum(ad), ad[1:])
+
+
+    def dp4_info_depth(self, row):
+        dp4 = [int(depth) for depth in row[7].split("DP4=")[1].split(";")[0].split(",")]
+        return (sum(dp4), [dp4[2] + dp4[3]])
+
+
+    def dp4_format_depth(self, row):
+        dp4 = [int(depth) for depth in dict(zip(row[8].split(":"), row[self.FORMAT_INDEX].split(":")))["DP4"].split(",")]
+        return (sum(dp4), [dp4[2] + dp4[3]])
+        
+
+    def strelka_depth(self, row):
+        formatdict = dict(*zip(row[8].split(":"), row[self.FORMAT_INDEX].split(":")))
+        if "CU" in formatdict:
+            depths = {key: sum(int(depth) for depth in formatdict[key].split(",")) for key in ("CU", "GU", "TU", "AU")}
+            tot_depth = sum(depths.values())
+            alt_depth = depths[row[4]+"U"]
+        else:
+            tot_depth = int(formatdict["DP"]) + int(formatdict["DP2"]) 
+            alt_depth = sum(int(depth) for depth in formatdict["TIR"].split(","))
+        return (tot_depth, [alt_depth])
+    
+
+    def no_depth(self, row):
+        return (None, cycle([None]))
+        
+
+
+def vcf(path, locations=(None,), zygosity_data={}, format_index=9):
     hetero_ll = zygosity_data.get("hetero_ll", HETERO_LL)
     hetero_ul = zygosity_data.get("hetero_ul", HETERO_UL)
     homo_ll = zygosity_data.get("homo_ll", HOMO_LL)
 
-    def fao_fdp_depths():
-        data = dict(keyval.split("=") for keyval in row[7].split(";"))
-        yield int(data["FDP"])
-        for d in map(int, data["FAO"].split(",")):
-            yield d
-
-    def ao_dp_depths():
-        data = dict(keyval.split("=") for keyval in row[7].split(";"))
-        yield int(data["DP"])
-        for d in map(int, data["AO"].split(",")):
-            yield d
-
-    def ad_depths():
-        ad = list(map(int, row[9].split(":")[row[8].split(":").index("AD")].split(",")))
-        yield sum(ad)
-        for d in ad[1:]:
-            yield d
-
-    def dp4_dp_depths():
-        dp4 = list(map(int, row[7].split("DP4=")[1].split(";")[0].split(",")))
-        yield sum(dp4)
-        yield sum(dp4[2:4])
-        
-    def strelka_depths():
-        lookup = {key: val for key, val in zip(row[8].split(":"), row[9].split(":"))}
-        try:
-            yield sum(map(int, (chain(lookup[key].split(",")) for key in ("CU", "GU", "TU", "AU"))))
-            key = row[4]+"U"
-        except KeyError:
-            yield int(lookup["DP"]) + int(lookup["DP2"]) 
-            key = "TIR"
-        yield sum(map(int, lookup[key].split(",")))
-
+    calculatevaf = CalculateVaf(path, format_index=format_index)
     with FileContext(path, "rt") as f:
         row = "#"
         while row.startswith("#"):
@@ -980,23 +1038,9 @@ def vcf(path, locations=(None,), zygosity_data={}):
         row = row.strip().split("\t")
         infokeys = [keyval.split("=")[0] for keyval in row[7].split(";")] if len(row)>=8 else ()
         formatkeys = row[8].split(":") if len(row)>=10 else ()
-        if "FAO" in infokeys and "FDP" in infokeys:
-            depthsfunc = fao_fdp_depths
-        elif "AO" in infokeys and "DP" in infokeys:
-            depthsfunc = ao_dp_depths
-        elif "AD" in formatkeys:
-            depthsfunc = ad_depths
-        elif "DP4" in infokeys and "DP" in infokeys:
-            depthsfunc = dp4_dp_depths
-        elif "TU" in formatkeys or "TIR" in formatkeys:
-            depthsfunc = strelka_depths
-        else:
-            depthsfunc = None
         
-        hasdepth = bool(depthsfunc)
         hasfilters = bool(row[6] != DOT)
         hasqual = bool(row[5] != DOT)
-        variantclass = SequencedVariant if (hasdepth or hasfilters or hasqual) else Variant
         
         f.seek(0, 2)
         vcfend = f.tell()
@@ -1035,29 +1079,27 @@ def vcf(path, locations=(None,), zygosity_data={}):
                         filters = "PASS"
                 if hasqual:
                     qual = float(row[5])
-                if hasdepth:
-                    getdepth = depthsfunc()
-                    depth = next(getdepth)
                 ref = row[3]
                 alts = row[4].split(",")
                 name = row[2]
                 names = repeat(name) if name == DOT else name.split(",")
+                
+                tot_depth, alt_depths = calculatevaf(row)
+                variantclass = SequencedVariant if (alt_depths or hasfilters or hasqual) else Variant
 
-                for name, alt in zip(names, alts):
+                for name, alt, alt_depth in zip(names, alts, alt_depths):
                     if alt not in (ref, DOT):
-                        if hasdepth:
-                            altdepth = next(getdepth)
-                            if altdepth == 0:
-                                continue
+                        if alt_depth == 0:
+                            continue
 
                         variant = variantclass(chrom, pos, ref, alt, name=row[2])
                         if hasqual:        
                             variant.qual = qual
                         if hasfilters:
                             variant.filters = filters
-                        if hasdepth:
-                            variant.depth = depth
-                            variant.alt_depth = altdepth
+                        if alt_depth is not None:
+                            variant.depth = tot_depth
+                            variant.alt_depth = alt_depth
                             if homo_ll <= variant.vaf:
                                 variant.zygosity = "hemizygous" if chrom in (Chrom(23), Chrom(24), Chrom(25)) else "homozygous"
                             elif hetero_ll <= variant.vaf <= hetero_ul:

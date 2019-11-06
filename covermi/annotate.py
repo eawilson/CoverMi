@@ -59,10 +59,12 @@ def ncbi(annotations, **kwargs):
         for ref in annotation.get("dbsnp", ()):
             refids[ref.strip("rs")] += [annotation]
     if refids:
-        for refid, snp in _ncbi(refids.keys(), **kwargs):
-            if "clinical_significance" in snp:
-                for annotation in refids[refid]:
-                    annotation["clinical_significance"] = snp["clinical_significance"] 
+        identifiers = list(refids.keys())
+        for i in range(0, len(identifiers), 50):
+            for refid, snp in _ncbi(identifiers[i:i + 50], **kwargs):
+                if "clinical_significance" in snp:
+                    for annotation in refids[refid]:
+                        annotation["clinical_significance"] = snp["clinical_significance"] 
 
 
 @keyvalcache
@@ -265,24 +267,23 @@ def vepscript(variants, assembly=DEFAULT_ASSEMBLY, species=DEFAULT_SPECIES, tran
     if not hasattr(variants, "__getitem__"):
         raise TypeError("'variants' argument to vepscript must implement __getitem__")
 
-    extra = []
-    operating_system = os.name
-    if operating_system == "posix":
-        basedir = os.path.expanduser("~")
-    elif operating_system == "nt":
-        basedir = "C:\\"
-        extra = ["--dir", "C:\\cache"]
-    else:
-        raise RuntimeError("Unable to locate vep path on {}".format(operating_system))
+    #extra = []
+    #operating_system = os.name
+    #if operating_system == "posix":
+        #basedir = os.path.expanduser("~")
+    #elif operating_system == "nt":
+        #basedir = "C:\\"
+        #extra = ["--dir", "C:\\cache"]
+    #else:
+        #raise RuntimeError("Unable to locate vep path on {}".format(operating_system))
 
-    with tempfile.NamedTemporaryFile(delete=False) as temp:
+    with tempfile.NamedTemporaryFile(mode="wt", delete=False) as temp:
         for i, v in enumerate(variants):
             row = "{} {} {} {}/{} + {}\n".format(str(v.chrom)[3:], v.start, v.stop, v.ref, v.alt, i+1)
             temp.write(row)
     
-    scriptpath = os.path.join(basedir, "ensembl-vep-90", "vep")
-    command = ["perl", scriptpath, "--json", "--offline", "--everything", "--no_stats", "--use_given_ref", "-o", "STDOUT", "-i", temp.name, \
-                                                   "--assembly", assembly, "--species", species] + extra
+    command = ["vep", "--json", "--offline", "--everything", "--no_stats", "--use_given_ref", "-o", "STDOUT", "-i", temp.name, \
+                                                   "--assembly", assembly, "--species", species]
     if transcript_source == "refseq":
         command += ["--refseq"]
     elif transcript_source != "ensembl":
@@ -350,13 +351,16 @@ class Annotation(dict):
 # Yield "one annotation per variant" or
 #       "one annotation per gene" or
 #       "one annotation per specified transcript and one annotation per variant for all others" or
+#       "one annotation per specified transcript and ignore all others"
 #       "everything"
+
 def vep(variants, what="routine", panel=None, targets="", principal="", assembly=DEFAULT_ASSEMBLY, species=DEFAULT_SPECIES, transcript_source=DEFAULT_TRANSCRIPTS):
     ROUTINE = 0
     ONE_PER_GENE = 1
     ONE_PER_VARIANT = 2
     EVERYTHING = 3
-    what = {"routine": ROUTINE, "one_per_gene": ONE_PER_GENE, "one_per_variant": ONE_PER_VARIANT, "everything": EVERYTHING}[what]
+    TARGETS_ONLY = 4
+    what = {"routine": ROUTINE, "one_per_gene": ONE_PER_GENE, "one_per_variant": ONE_PER_VARIANT, "everything": EVERYTHING, "targets_only": TARGETS_ONLY }[what]
 
     if panel:
         if not targets and "targets" in panel:
@@ -455,9 +459,11 @@ def vep(variants, what="routine", panel=None, targets="", principal="", assembly
                 consequence_by_gene[consequence["gene_symbol"]] += [consequence]
 
             affected_genes = set(consequence_by_gene)
-            selected_genes = affected_genes & gene_symbols if (what in (ROUTINE, ONE_PER_VARIANT)) else affected_genes
+            selected_genes = affected_genes & gene_symbols if (what in (ROUTINE, ONE_PER_VARIANT, TARGETS_ONLY)) else affected_genes
             if selected_genes:
                 gene_match = True
+            elif what == TARGETS_ONLY:
+                continue
             else:
                 selected_genes = affected_genes
                 gene_match = False
@@ -466,17 +472,19 @@ def vep(variants, what="routine", panel=None, targets="", principal="", assembly
             for gene in selected_genes:
                 dedup = {}
                 for consequence in consequence_by_gene[gene]:
-                    transcript_id, consequence["transcript_version"] = consequence["transcript_id"].split(".")
-                    if transcript_id not in dedup or int(consequence["transcript_version"]) > int(dedup[transcript_id]["transcript_version"]) :
-                        consequence["transcript_id"] = transcript_id
-                        dedup[transcript_id] = consequence
-
+                    try:
+                        transcript_id, consequence["transcript_version"] = consequence["transcript_id"].split(".")
+                        if transcript_id not in dedup or int(consequence["transcript_version"].split(":")[0]) > int(dedup[transcript_id]["transcript_version"].split(":")[0]) :
+                            consequence["transcript_id"] = transcript_id
+                            dedup[transcript_id] = consequence
+                    except Exception:
+                        pass
                 potentials = [consequence for consequence in dedup.values() if consequence["transcript_id"] in transcript_ids] if transcript_ids else []
                 transcript_match = bool(potentials)
                 if not transcript_match:
                     potentials = dedup.values()
 
-                if len(potentials) > 1 and (what in (ONE_PER_VARIANT, ONE_PER_GENE) or (what == ROUTINE and not transcript_match)):
+                if len(potentials) > 1 and (what in (ONE_PER_VARIANT, ONE_PER_GENE) or (what in (ROUTINE, TARGETS_ONLY) and not transcript_match)):
                     potentials = sorted(potentials, key=transcriptsort, reverse=True)[:1]
 
                 selected += potentials
@@ -495,7 +503,7 @@ def vep(variants, what="routine", panel=None, targets="", principal="", assembly
                 annotation["gene_symbol"] = consequence["gene_symbol"]
                 annotation["gene_id"] = consequence["gene_id"]
                 annotation["transcript_id"] = consequence["transcript_id"]
-                annotation["impact"] = consequence["impact"]
+                annotation["impact"] = consequence.get("impact", "MODIFIER")
                 annotation["consequence_terms"] = consequence["consequence_terms"]
                 annotation["biotype"] = consequence["biotype"]
                 for key in ("hgvsc", "hgvsp"):

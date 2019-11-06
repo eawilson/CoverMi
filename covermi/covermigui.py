@@ -137,12 +137,16 @@ def main():
         if update:
             if "properties" in panel.files:
                 path = panel.files["properties"]
+                header = ""
             else:
                 path = os.path.join(panel.path, panel.name+"_properties.txt")
+                header = "#covermi\n"
                 if os.path.exists(path):
                     raise CoverMiException("Incorrect format of properties file {}".format(os.path.basename(path)))
             try:
                 with open(path, "at") as f:
+                    if  header:
+                        f.write(header)
                     for key, val in update.items():
                         f.write("{}={}\n".format(key, val))
             except IOError:
