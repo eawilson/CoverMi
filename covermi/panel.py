@@ -385,22 +385,22 @@ class Panel(object):
             with open(self.files["properties"], "rU") as f:
                 key = None
                 for row in f:
-                    row = row.rstrip()
-                    lsrow = row.lstrip()
-                    if row and lsrow[0] != "#":
-                        if row == lsrow:
-                            pos = lsrow.find("=")
-                            if pos < 1 or pos == len(lsrow) - 1:
+                    preceeding_whitespace = row != row.lstrip()
+                    row = row.strip()
+                    if row and row[0] != "#":
+                        if not preceeding_whitespace:
+                            pos = row.find("=")
+                            if pos < 1 or pos == len(row) - 1:
                                 self._eprint("Malformed properties file: {}".format(row))
                                 continue
                             else:
-                                key = lsrow[:pos].lower()
-                                update(key, lsrow[pos+1:])
+                                key = row[:pos].lower().strip()
+                                update(key, row[pos+1:].strip())
                         elif key:
                             if isinstance(properties[key], list):
-                                properties[key] += [lsrow]
+                                properties[key] += [row]
                             else:
-                                properties[key] = [properties[key], lsrow]
+                                properties[key] = [properties[key], row]
                         else:
                             self._eprint("Malformed properties file: {}".format(row))
                             continue

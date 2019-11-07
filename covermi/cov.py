@@ -1,7 +1,7 @@
 # { chr_number : [ [start, stop, depth], [start, stop, depth], ... ] }
 from __future__ import print_function, absolute_import, division
 
-import csv, struct, os, sys, pdb
+import csv, struct, os, sys, pdb, gzip
 from collections import defaultdict, namedtuple
 from io import BufferedReader
 from itertools import islice, chain
@@ -23,8 +23,8 @@ try:
     from Bio import bgzf
     BGZF = True
 except ImportError:
-    import gzip        
-    BGZF = False
+    BGZF = False        
+BGZF = False
 
 
 def bisect_left(a, x):
@@ -135,18 +135,18 @@ class Cov(object):
             fr_depth[(amplicon.stop, MINUS)] = amplicon_info
 
         chrom_depths = defaultdict(Counter)
-        for chrom, start, stop, strand in data:
-            depths = chrom_depths[chrom]
-            depths[start] += 1
-            depths[stop+1] -= 1
+        for row in data:
+            depths = chrom_depths[row[0]]
+            depths[row[1]] += 1
+            depths[row[2]+1] -= 1
             
             if amplicons:
                 try:
-                    fr_depth[(start, PLUS)].f_depth += 1
+                    fr_depth[(row[1], PLUS)].f_depth += 1
                     self.ontarget += 1
                 except KeyError:
                     try:
-                        fr_depth[(stop, MINUS)].r_depth += 1
+                        fr_depth[(row[2], MINUS)].r_depth += 1
                         self.ontarget += 1
                     except KeyError:
                         self.offtarget += 1

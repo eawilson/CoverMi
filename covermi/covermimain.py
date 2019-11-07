@@ -1,6 +1,4 @@
-from __future__ import print_function, absolute_import, division
-
-import sys, os, time, re, getopt, pdb
+import sys, os, time, re, pdb, shutil
 from collections import namedtuple
 
 from .cov import Cov, fake_paired_end_reads
@@ -58,25 +56,35 @@ def strip_underscore(sample):
 
 
 
-def create_output_dir(output_path, bam_path):
+def create_output_dir(output_path, bam_path, overwrite=False):
     output_path = os.path.join(output_path, "{0}_covermi_output".format(os.path.splitext(os.path.basename(bam_path))[0]))
+    if overwrite and os.path.isdir(output_path):
+        for root, dns, fns in os.walk(output_path):
+            for fn in fns:
+                if os.path.splitext(fn)[1] not in (".pdf", ".txt", ".tsv"):
+                    raise CoverMiException("Unable to overwrite {0} as contains unexpected contents.".format(output_path))
+        try:
+            shutil.rmtree(output_path)
+        except Exception:
+            raise CoverMiException("Unable to overwrite {0}.".format(output_path))
+        
     try:
         os.mkdir(output_path)
-    except OSError:
+    except Exception:
         if os.path.isdir(output_path):
-            raise CoverMiException("{0} folder already exists".format(output_path))
+            raise CoverMiException("{0} already exists.".format(output_path))
         else:
-            raise CoverMiException("Unable to create folder {0}".format(output_path))
+            raise CoverMiException("Unable to create {0}.".format(output_path))
     return output_path
 
 
-def covermimain(panel_path, bam_path, output_path, depth=None):
+def covermimain(panel_path, output_path, bam_path=None, depth=None, overwrite=False):
     print("CoverMi v{} (Python {}.{}.{})".format(__version__, *sys.version_info[:3]))
 
     panel = Panel(panel_path, verbose=True, splice_site_buffer=5)
     if depth is not None:
         panel.properties["depth"] = depth
-    output_path = create_output_dir(output_path, bam_path if bam_path!="" else panel_path)
+    output_path = create_output_dir(output_path, bam_path if bam_path!="" else panel_path, overwrite=overwrite)
     print("Processing...")
 
     if bam_path != "":

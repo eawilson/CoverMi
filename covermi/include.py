@@ -21,6 +21,6 @@ DEFAULT_ASSEMBLY = "GRCh37"
 DEFAULT_TRANSCRIPTS = "refseq"
 DEFAULT_SPECIES = "homo_sapiens"
 
-__version__ = "3.1.5"
+__version__ = "4.0.0"
 
 eprint = WarnOnce()
