@@ -14,7 +14,7 @@ setup(name="covermi",
     license="MIT",
     include_package_data=True,
     zip_safe=True,
-    entry_points={"console_scripts" : ["covermi=covermi.covermigui:main",
+    entry_points={"console_scripts" : ["covermi=covermi.covermimain:main",
                                        "annotatetsca=covermi.annotatetsca:main",
                                        "bringmiup=covermi.bringmiup:main",
                                       ]
