@@ -184,7 +184,7 @@ def main():
         print("Finished")
     except Exception as e:
         if type(e).__name__ == "CoverMiException":
-            print(e.message)
+            print(e)
         else:
             traceback.print_exc()
             print("UNEXPECTED ERROR. QUITTING.")

@@ -134,33 +134,12 @@ class Cov(object):
             fr_depth[(amplicon.start, PLUS)] = amplicon_info
             fr_depth[(amplicon.stop, MINUS)] = amplicon_info
 
+        chrom_depths = defaultdict(Counter)
         for chrom, start, stop, strand in data:
-            depth = 1
-            cov = self.data[chrom]
-            upperx = -1
-            lowerx = -1
-            for x in range(len(cov) - 1, -1, -1):
-                if stop < cov[x][0]:
-                    continue
-                if stop >= cov[x][1] and start <= cov[x][0]:
-                    cov[x][2] += depth
-                    if start == cov[x][0]:
-                        break
-                else:
-                    if stop < cov[x][1]:
-                        upperx = x
-                    if start > cov[x][0]:
-                        lowerx = x
-                        break
-            if upperx != -1:
-                cov.insert(upperx, [cov[upperx][0], stop, cov[upperx][2] + depth])
-                cov[upperx+1][0] = stop + 1
-            if lowerx != -1:
-                cov.insert(lowerx+1, [start, cov[lowerx][1], cov[lowerx][2] + depth * (upperx!=lowerx)])
-                cov[lowerx][1] = start - 1
-                if upperx == lowerx:
-                    cov[lowerx][2] -= depth
-
+            depths = chrom_depths[chrom]
+            depths[start] += 1
+            depths[stop+1] -= 1
+            
             if amplicons:
                 try:
                     fr_depth[(start, PLUS)].f_depth += 1
@@ -170,7 +149,20 @@ class Cov(object):
                         fr_depth[(stop, MINUS)].r_depth += 1
                         self.ontarget += 1
                     except KeyError:
-                        self.offtarget += 1                        
+                        self.offtarget += 1
+                        
+        for chrom, depths in chrom_depths.items():
+            start = 0
+            depth = 0
+            cov = []
+            for pos, change in sorted(depths.items()):
+                cov.append((start, pos-1, depth))
+                start = pos
+                depth += change
+            if depth != 0: # Should never ever happen under any circumstance.
+                raise RuntimeError("Fatal error in initial coverage calculation algorithm.")
+            cov.append((start, MAX_LEN+1, depth))
+            self.data[chrom] = cov
 
         self.amplicon_info.sort()
         if bam:
