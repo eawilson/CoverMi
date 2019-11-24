@@ -521,19 +521,149 @@ def vep(variants, what="routine", panel=None, targets="", principal="", assembly
                 annotations += [annotation]
     return annotations
 
+
+
+
+
+import json
+
+
+def process_rawannotation(vep_json_file, panel=(), what="routine"):
+    ROUTINE = 0
+    ONE_PER_GENE = 1
+    ONE_PER_VARIANT = 2
+    EVERYTHING = 3
+    TARGETS_ONLY = 4
+    what = {"routine": ROUTINE, "one_per_gene": ONE_PER_GENE, "one_per_variant": ONE_PER_VARIANT, "everything": EVERYTHING, "targets_only": TARGETS_ONLY }[what]
+
+    transcript_ids, gene_symbols, _ = load_targets(panel.targets if "targets" in panel else None)
+    principal = load_principal(panel.principa if "principal" in panell else None)
+
+    if panel.properties.get("transcript_source", "") == "refseq":
+        transcriptsort = lambda x: (x["transcript_id"].startswith("N"), principal[x["transcript_id"]], "canonical" in x, -int(x["transcript_id"][3:]))
+    else:
+        transcriptsort = lambda x: (principal[x["transcript_id"]], "canonical" in x, -int(x["transcript_id"][4:]))
         
+    annotations = []
+    for vep_output in json.load(vep_json_file):
 
+        demographics = defaultdict(list)
+        for colocated in vep_output.get("colocated_variants", ()):
+            allele_string = colocated["allele_string"]
+            identifier = colocated["id"]
+            if allele_string == "COSMIC_MUTATION":
+                demographics["cosmic"] += [identifier]
 
+            elif allele_string == "HGMD_MUTATION":
+                demographics["hgmd"] += [identifier]
 
+            else:
+                if identifier.startswith("rs"):
+                    demographics["dbsnp"] += [identifier]
+                
+                if "pubmed" in colocated:
+                    demographics["pubmed"] = str(colocated["pubmed"]).split(",")
 
+                gnomad = []
+                nhlbi = []
+                thousand = []
+                for series, maf, allele in ((gnomad, "gnomad_afr_maf", "gnomad_afr_allele"),
+                                            (gnomad, "gnomad_amr_maf", "gnomad_amr_allele"),
+                                            (gnomad, "gnomad_asj_maf", "gnomad_asj_allele"),
+                                            (gnomad, "gnomad_eas_maf", "gnomad_eas_allele"),
+                                            (gnomad, "gnomad_fin_maf", "gnomad_fin_allele"),
+                                            (gnomad, "gnomad_nfe_maf", "gnomad_nfe_allele"),
+                                            (gnomad, "gnomad_oth_maf", "gnomad_oth_allele"),
+                                            (gnomad, "gnomad_sas_maf", "gnomad_sas_allele"),
+                                            (nhlbi, "ea_maf", "ea_allele"),
+                                            (nhlbi, "aa_maf", "aa_allele"),
+                                            (thousand, "afr_maf", "afr_allele"),
+                                            (thousand, "amr_maf", "amr_allele"),
+                                            (thousand, "asn_maf", "asn_allele"),
+                                            (thousand, "eur_maf", "eur_allele"),
+                                            (thousand, "eas_maf", "eas_allele"),
+                                            (thousand, "sas_maf", "sas_allele")):
+                    try:
+                        if colocated[allele] == variant.alt:
+                            series += [colocated[maf]]
+                    except KeyError:
+                        pass
+                if gnomad:
+                    demographics["gnomad"] = max(gnomad)
+                if nhlbi:
+                    demographics["nhlbi"] = max(nhlbi)
+                if thousand:
+                    demographics["thousand"] = max(thousand)
+                if any((gnomad, nhlbi, thousand)):
+                    demographics["maf"] = max(gnomad + nhlbi + thousand)
 
+        if "transcript_consequences" in vep_output:
+            consequence_by_gene = defaultdict(list)
+            for consequence in vep_output["transcript_consequences"]:
+                if "gene_symbol" not in consequence:
+                    consequence["gene_symbol"] = "LOC{}".format(consequence["gene_id"])
+                consequence_by_gene[consequence["gene_symbol"]] += [consequence]
 
+            affected_genes = set(consequence_by_gene)
+            selected_genes = affected_genes & gene_symbols if (what in (ROUTINE, ONE_PER_VARIANT, TARGETS_ONLY)) else affected_genes
+            if selected_genes:
+                gene_match = True
+            elif what == TARGETS_ONLY:
+                continue
+            else:
+                selected_genes = affected_genes
+                gene_match = False
+            
+            selected = []
+            for gene in selected_genes:
+                dedup = {}
+                for consequence in consequence_by_gene[gene]:
+                    try:
+                        transcript_id, consequence["transcript_version"] = consequence["transcript_id"].split(".")
+                        if transcript_id not in dedup or int(consequence["transcript_version"].split(":")[0]) > int(dedup[transcript_id]["transcript_version"].split(":")[0]) :
+                            consequence["transcript_id"] = transcript_id
+                            dedup[transcript_id] = consequence
+                    except Exception:
+                        pass
+                potentials = [consequence for consequence in dedup.values() if consequence["transcript_id"] in transcript_ids] if transcript_ids else []
+                transcript_match = bool(potentials)
+                if not transcript_match:
+                    potentials = dedup.values()
 
+                if len(potentials) > 1 and (what in (ONE_PER_VARIANT, ONE_PER_GENE) or (what in (ROUTINE, TARGETS_ONLY) and not transcript_match)):
+                    potentials = sorted(potentials, key=transcriptsort, reverse=True)[:1]
 
+                selected += potentials
 
+            if len(selected) > 1 and (what == ONE_PER_VARIANT or (what == ROUTINE and not gene_match)):
+                selected = sorted(selected, key=lambda x: (score_biotype(x["biotype"]), -int(x["gene_id"])), reverse=True)[:1]
+                selected_genes = set([selected[0]["gene_symbol"]])
+                
+            other_genes = list(affected_genes - selected_genes)
 
-
-
-
-
+            for consequence in selected:
+                annotation = Annotation(variant)
+                annotation.update(demographics)
+                annotation["other_genes"] = other_genes
+                annotation["most_severe_consequence"] = vep_output["most_severe_consequence"]
+                annotation["gene_symbol"] = consequence["gene_symbol"]
+                annotation["gene_id"] = consequence["gene_id"]
+                annotation["transcript_id"] = consequence["transcript_id"]
+                annotation["impact"] = consequence.get("impact", "MODIFIER")
+                annotation["consequence_terms"] = consequence["consequence_terms"]
+                annotation["biotype"] = consequence["biotype"]
+                for key in ("hgvsc", "hgvsp"):
+                    try:
+                        hgvs = consequence[key]
+                    except KeyError:
+                        continue
+                    transcript, change = hgvs.split(":")
+                    annotation[key] = "{}:{}".format(transcript.split(".")[0], change)
+                for key in ("sift_score", "sift_prediction", "polyphen_score", "polyphen_prediction"):
+                    try:
+                        annotation[key] = consequence[key]
+                    except KeyError:
+                        pass
+                annotations += [annotation]
+    return annotations
 

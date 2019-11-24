@@ -11,7 +11,7 @@ except ImportError:
 
 import pdb
 from math import log10
-from itertools import cycle
+from itertools import cycle, zip_longest
 
 try: # python2
     from itertools import izip as zip
@@ -38,11 +38,13 @@ class Plot(object):
         self.y += [self.scaley(y)]
 
     def scalex(self, x):
-        for beginning, end, fixed, scaling in self.data:
-            if x >= beginning and x <= end:
+        if x < self.data[0][0]:
+            return x
+        for start, stop, fixed, scaling in self.data:
+            if start <= x <= stop:
                 break
-        rel_pos = x - beginning
-        return x - (fixed + (rel_pos - (rel_pos//scaling)))
+        rel_pos = x - start
+        return start - fixed + (rel_pos * scaling)
 
     def scaley(self, y):
         return (log10(y) if y > 1 else 0.0) if not self.cumulative else y / 25.0
@@ -67,20 +69,25 @@ def plot(coverage=None, panel=None, identifier=None, fn=None, transcripts=None, 
             plot_start = plot_area.data[entry.chrom][0].start
             plot_stop = plot_area.data[entry.chrom][0].stop
 
+            # may not be good with a non-amplicons bed
             max_intron_size = amplicons.base_count // amplicons.components if not amplicons.is_empty else 200
             blocks = amplicons.combined_with(exons).merged
             # data = [start, stop, fixed subtraction, scaling factor]
-            extra = {"cumulative": True} if cumulative else {}
-            plot = Plot(**extra)
-            end_of_prev_block = plot_start-2
+            plot = Plot(cumulative=cumulative)
+
             fixed_total = 0
-            for block in blocks:
-                intron_size = block.start - end_of_prev_block - 1
-                plot.data += [(end_of_prev_block+1, block.start-1, fixed_total, max(float(intron_size)//max_intron_size, 1))]
-                fixed_total += max(intron_size - max_intron_size, 0)
+            next_blocks = iter(blocks)
+            next(next_blocks)
+            for block, next_block in zip_longest(blocks, next_blocks):
                 plot.data += [(block.start, block.stop, fixed_total, 1)]
-                end_of_prev_block = block.stop
-            plot.data += [(end_of_prev_block+1, plot_stop+1, fixed_total, max(float(plot_stop - end_of_prev_block)//max_intron_size, 1) if (not blocks.is_empty) else 1)]
+                if next_block is not None:
+                    actual_intron_size = next_block.start - block.stop - 1
+                    scaled_intron_size = min(actual_intron_size, max_intron_size)
+                    plot.data += [(block.stop + 1, next_block.start - 1, fixed_total, float(scaled_intron_size) / actual_intron_size)]
+                    if scaled_intron_size < actual_intron_size:
+                        fixed_total += actual_intron_size - scaled_intron_size
+            if not plot.data:
+                plot.data = [plot.start, plot.end, 0, 1]
 
             # coverage
             if coverage:

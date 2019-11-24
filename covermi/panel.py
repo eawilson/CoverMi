@@ -139,15 +139,15 @@ class Panel(object):
     @cached
     def amplicons(self):
         if "manifest" in self.files and "designstudio" in self.files:
-            raise CoverMiException("ERROR. {} panel contains both manifest and design studio bedfile".format(self.name))
+            raise CoverMiException("ERROR. {} panel contains both manifest and bedfile".format(self.name))
         elif "manifest" in self.files:
             self._eprint("Loading manifest: {}".format(os.path.basename(self.files["manifest"])))
             return Gr(illuminamanifest(self.files["manifest"]))
         elif "designstudio" in self.files:
-            self._eprint("Loading design studio bedfile: {}".format(os.path.basename(self.files["designstudio"])))
+            self._eprint("Loading bedfile: {}".format(os.path.basename(self.files["designstudio"])))
             return Gr(bed(self.files["designstudio"]))
         else:
-            raise CoverMiException("ERROR. {} panel does not contain a manifest or design studio bedfile".format(self.name))
+            raise CoverMiException("ERROR. {} panel does not contain a manifest or bedfile".format(self.name))
 
 
     @property

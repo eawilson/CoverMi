@@ -2,7 +2,11 @@ import sys
 import os
 import argparse
 import platform
-import tkinter
+try:
+    import tkinter
+    from tkinter import filedialog
+except ImportError:
+    pass
 import time
 import re
 import shutil
@@ -132,7 +136,7 @@ def main():
             rootwindow.withdraw()
 
             print("Please select a panel.")
-            panelpath = tkinter.filedialog.askdirectory(parent=rootwindow, initialdir="~", title='Please select a panel')
+            panelpath = filedialog.askdirectory(parent=rootwindow, initialdir="~", title='Please select a panel')
             if not bool(panelpath):
                 sys.exit()
             panelpath = os.path.abspath(panelpath)
@@ -156,17 +160,17 @@ def main():
             else:
                 if mode == "multiple":
                     print("Please select the folder containing the bam files.")
-                    bampath = tkinter.filedialog.askdirectory(parent=rootwindow, initialdir="~", title='Please select a folder')
+                    bampath = filedialog.askdirectory(parent=rootwindow, initialdir="~", title='Please select a folder')
                 elif mode == "single":
                     print("Please select a bam file.")
-                    bampath = tkinter.filedialog.askopenfilename(parent=rootwindow, initialdir="~", filetypes=[("bamfile", "*.bam")], title='Please select a bam file')
+                    bampath = filedialog.askopenfilename(parent=rootwindow, initialdir="~", filetypes=[("bamfile", "*.bam")], title='Please select a bam file')
                 if bampath == ():
                     sys.exit()
                 bampath = os.path.abspath(bampath)
                 print("{} selected.".format(bampath))
 
             print("Please select a location for the output.")
-            outputpath = tkinter.filedialog.askdirectory(parent=rootwindow, initialdir=bampath, title='Please select a location for the output')
+            outputpath = filedialog.askdirectory(parent=rootwindow, initialdir=bampath, title='Please select a location for the output')
             if outputpath == ():
                 sys.exit()
             outputpath = os.path.abspath(outputpath)
@@ -230,7 +234,7 @@ def walk_samples(path, ext=".bam", strip_trailing_underscore=True):
 
 
 
-def covermimain(panel_path, output_path, bam_path=None, depth=None, overwrite=False):
+def covermimain(panel_path, output_path="", bam_path=None, depth=None, overwrite=False):
     print("CoverMi v{} (Python {}.{}.{})".format(__version__, *sys.version_info[:3]))
     print("Processing...")
     
@@ -298,3 +302,4 @@ def covermimain(panel_path, output_path, bam_path=None, depth=None, overwrite=Fa
         designreport.create(cov, panel, None, os.path.join(output_path, panel.name))
         covermiplot.plot(cov, panel, panel.name, os.path.join(output_path, panel.name+"_plot.pdf"))
 
+    return output_path
