@@ -101,7 +101,7 @@ def main():
                                     
                 if "variants" in panel.files and not args.overwrite:
                     if "diseases" in panel.files:
-                        print("Diseases file {} already exists.".format(panel.files["properties"]))
+                        print("Diseases file {} already exists.".format(panel.files["diseases"]))
                     else:
                         fn = "diseass_{}.txt".format(panel.name)
                         path = os.path.join(args.panel, fn)
