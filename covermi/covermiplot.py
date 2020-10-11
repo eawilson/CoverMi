@@ -1,191 +1,178 @@
-from __future__ import print_function, absolute_import, division
-
-try:
-    from matplotlib.backends.backend_pdf import FigureCanvasPdf, PdfPages
-    from matplotlib.figure import Figure
-    from matplotlib.patches import Rectangle
-    from matplotlib.backends.backend_pdf import PdfPages
-    MATPLOTLIB = True
-except ImportError:
-    MATPLOTLIB = False
+from matplotlib.backends.backend_pdf import FigureCanvasPdf, PdfPages
+from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
+from matplotlib.backends.backend_pdf import PdfPages
 
 import pdb
 from math import log10
-from itertools import cycle, zip_longest
-
-try: # python2
-    from itertools import izip as zip
-except ImportError: # python3
-    pass
+from itertools import cycle, chain
+from collections import namedtuple
     
 from .gr import Gr
+from .cov import bisect_left
+
+
+def log(pos):
+    return log10(pos) if pos > 1 else 0.0
 
 
 
 class Plot(object):
-    def __init__(self, cumulative=False):
-        self.cumulative = cumulative
-        self.data = []
-        self.new()
+    def __init__(self, coverage=None, panel=None, depth=None, title=None, output="plot.pdf"):
+        self._pdf = PdfPages(output)
+        self._title = title
 
-    def new(self, *args):
-        self.x = []
-        self.y = []
-        if args: self.add(*args)
-
-    def add(self, x, y):
-        self.x += [self.scalex(x)]
-        self.y += [self.scaley(y)]
-
-    def scalex(self, x):
-        if x < self.data[0][0]:
-            return x
-        for start, stop, fixed, scaling in self.data:
-            if start <= x <= stop:
-                break
-        rel_pos = x - start
-        return start - fixed + (rel_pos * scaling)
-
-    def scaley(self, y):
-        return (log10(y) if y > 1 else 0.0) if not self.cumulative else y / 25.0
-
-
-def plot(coverage=None, panel=None, identifier=None, fn=None, transcripts=None, cumulative=False, histogram=False):
-    if "transcripts" not in panel or not MATPLOTLIB:
-        return
-
-    with PdfPages(fn) as pdf:
-        transcripts = panel.transcripts.subset(lambda e: e.name in transcripts) if transcripts else panel.transcripts
-        for entry in transcripts.sorted_by_name:
-            figure = Figure(figsize=(11.7, 4.15))
-            FigureCanvasPdf(figure)
-            ax = figure.gca()
-
-            transcript = Gr().add(entry)
-            amplicons = panel.amplicons.touched_by(transcript) if ("amplicons" in panel) else Gr()
-            exons = panel.exons.touched_by(transcript).subset(lambda e: e.name==entry.name) if ("exons" in panel) else Gr()
-            codingexons = panel.codingexons.touched_by(transcript).subset(lambda e: e.name==entry.name) if ("codingexons" in panel) else Gr()
-            plot_area = transcript.combined_with(amplicons).merged
-            plot_start = plot_area.data[entry.chrom][0].start
-            plot_stop = plot_area.data[entry.chrom][0].stop
-
-            # may not be good with a non-amplicons bed
-            max_intron_size = amplicons.base_count // amplicons.components if not amplicons.is_empty else 200
-            blocks = amplicons.combined_with(exons).merged
-            # data = [start, stop, fixed subtraction, scaling factor]
-            plot = Plot(cumulative=cumulative)
-
-            fixed_total = 0
-            next_blocks = iter(blocks)
-            next(next_blocks)
-            for block, next_block in zip_longest(blocks, next_blocks):
-                plot.data += [(block.start, block.stop, fixed_total, 1)]
-                if next_block is not None:
-                    actual_intron_size = next_block.start - block.stop - 1
-                    scaled_intron_size = min(actual_intron_size, max_intron_size)
-                    plot.data += [(block.stop + 1, next_block.start - 1, fixed_total, float(scaled_intron_size) / actual_intron_size)]
-                    if scaled_intron_size < actual_intron_size:
-                        fixed_total += actual_intron_size - scaled_intron_size
-            if not plot.data:
-                plot.data = [plot.start, plot.end, 0, 1]
-
+        if panel is not None:
+            for name in panel.names:
+                amplicons = Gr(entry for entry in panel.targets if entry.name == name)
+                exons = Gr(entry for entry in panel.exons if entry.name == name)
+                codingexons = Gr(entry for entry in panel.codingexons if entry.name == name)
+                self.figure(name, coverage, exons, codingexons, amplicons, depth)
+            self.close()
+    
+    
+    def __enter__(self):
+        return self
+    
+    
+    def __exit__(self, type_, value, traceback):
+        self.close()
+    
+    
+    def close(self):
+        self._pdf.close()
+    
+    
+    def figure(self, name, coverage, exons=Gr(), codingexons=Gr(), amplicons=Gr(), depth=None):
+        figure = Figure(figsize=(11.7, 4.15))
+        FigureCanvasPdf(figure)
+        ax = figure.gca()
+        
+        blocks = amplicons.combined_with(exons).merged
+        scale = Scale()
+        xticklabels = []
+        xticks = []
+        for chrom in sorted(blocks.keys()):
+            scale.initialse(blocks[chrom])
+            
             # coverage
             if coverage:
-                plot.new(plot_start-1, 0)
-                for cstart, cstop, cdepth in coverage.data[entry.chrom]:
-                    if cstop >= plot_start:
-                        plot.add(max(plot_start, cstart), cdepth)
-                        if cstop >= plot_stop:
-                            plot.add(plot_stop, cdepth)
-                            break
-                plot.add(plot_stop+1, 0)
-                ax.plot(plot.x, plot.y, "-", drawstyle="steps-post", color="dodgerblue", linewidth=1)
+                xy = [(scale.relative_start, log(0))]
+                bisect = bisect_left(coverage[chrom], scale.absolute_start) # leftmost coverage.stop >= entry.start
+                for cstart, cstop, cdepth in coverage[chrom][bisect:]:
+                    xy.append((scale(max(scale.absolute_start, cstart)), log(cdepth)))
+                    if cstop >= scale.absolute_stop:
+                        xy.append((scale.relative_stop, log(cdepth)))
+                        break
+                xy.append((scale.relative_stop, log(0)))
+                xs, ys = zip(*xy)
+                ax.plot(list(xs), list(ys), "-", drawstyle="steps-post", color="dodgerblue", linewidth=1)
 
             # amplicons
-            for amplicon, y in zip(amplicons, cycle((-0.04, 0))):
-                ax.add_patch(Rectangle((plot.scalex(amplicon.start), y), amplicon.stop-amplicon.start+1, 0.04, edgecolor="black", facecolor="black", zorder=100))
+            for amplicon, y in zip(amplicons.get(chrom, ()), cycle((-0.04, 0))):
+                ax.add_patch(Rectangle((scale(amplicon.start), y), amplicon.stop-amplicon.start+1, 0.04, edgecolor="black", facecolor="black", zorder=100))
 
             # exons
-            for regions, colour, drawlabels in ((exons, "darkgrey", True), (codingexons, "black", False)):
-                xlabels = []
-                xlocations = []
-                for exon in regions:
-                    ax.add_patch(Rectangle((plot.scalex(exon.start), -0.3), exon.stop-exon.start+1, 0.2, edgecolor="black", facecolor=colour))
-                    xlabels += [exon.exon]
-                    xlocations += [plot.scalex((exon.start+exon.stop)//2)]
-                    if drawlabels:
-                        ax.axhline(-0.2, color="black", linewidth=2, zorder=0)
-                        step = (len(xlocations) // 20) + 1
-                        ax.set_xticks(xlocations[::step])
-                        ax.set_xticklabels(xlabels[::step], fontsize=8)
-                        ax.tick_params(axis="x",length=0)
+            _xticks = []
+            for exon in exons.get(chrom, ()):
+                ax.add_patch(Rectangle((scale(exon.start), -0.3), exon.stop-exon.start+1, 0.2, edgecolor="black", facecolor="darkgrey"))
+                _xticks += [scale((exon.start+exon.stop)//2)]
+            for exon in codingexons.get(chrom, ()):
+                ax.add_patch(Rectangle((scale(exon.start), -0.3), exon.stop-exon.start+1, 0.2, edgecolor="black", facecolor="black"))
+            xticklabels.extend(range(len(_xticks), 0, -1) if exons and next(iter(exons)).strand == "-" else range(1, len(_xticks)+1))
+            xticks.extend(_xticks)
 
-            # variants       
-            if "variants_mutation" in panel:
-                if histogram:
-                    for exon in codingexons:
-                        num_variants = panel.variants_mutation.overlapped_by(exon).weighted_components
-                        ax.add_patch(Rectangle((plot.scalex(exon.start), 0), exon.stop-exon.start+1, plot.scaley(num_variants), facecolor="yellow"))
-                else:
-                    if cumulative:
-                        yvar = 50
-                    elif "depth" in panel:
-                        yvar = panel.depth
-                    else:
-                        yvar = 0
-                    x = [plot.scalex((variant.start+variant.stop)//2) for variant in plot_area.overlapped_by(panel.variants_mutation)]
-                    y = [plot.scaley(yvar)] * len(x)
-                    ax.plot(x, y, "x", color="black")
+            ## variants       
+            #if "variants_mutation" in panel:
+                #if "depth" in panel:
+                    #yvar = panel.depth
+                #else:
+                    #yvar = 0
+                #x = [scale((variant.start+variant.stop)//2) for variant in plot_area.overlapped_by(panel.variants_mutation)]
+                #y = [log(yvar)] * len(x)
+                #ax.plot(x, y, "x", color="black")
 
-            # depth        
-            if "depth" in panel and not cumulative:
-                ax.axhline(plot.scaley(panel.depth), color="black", linewidth=0.5, linestyle=":")
+        # depth        
+        if depth:
+            ax.axhline(log(depth), color="black", linewidth=0.5, linestyle=":")
 
-            border = (plot.scalex(plot_stop) - plot_start + 3) * 6/100
-            minx = plot_start - 1 - border
-            maxx = plot.scalex(plot_stop) + 1 + border
-            if entry.strand == "-":
-                minx, maxx = (maxx, minx)
+        border = (scale.relative_stop - scale.relative_start) * 6/100
+        minx = scale.relative_start - border
+        maxx = scale.relative_stop + border
+        if exons and next(iter(exons)).strand == "-":
+            minx, maxx = (maxx, minx)
 
-            ax.set_xlim(minx, maxx)
-            ax.spines["bottom"].set_visible(False)
+        ax.set_xlim(minx, maxx)
+        ax.spines["bottom"].set_visible(False)
 
-            ax.set_ylim(-0.3, 4.5)
-            ax.set_yticks([0, 1, 2, 3, 4])
-            if cumulative:
-                ax.set_yticklabels(["0%", "25%", "50%", "75%", "100%"], fontsize=8)
-                ax.set_ylabel("Proportion of time covered")       
-            else:
-                ax.set_yticklabels(["0", "10", "100", "1000", "10,000"], fontsize=8)
-                if histogram:
-                    ax.set_ylabel("Variants", fontsize=10)
-                else:
-                    ax.set_ylabel("Read Depth (log scale)", fontsize=10)
-            ax.set_xlabel("Exon", fontsize=10)
-            ax.set_title(identifier, fontsize=12)
-            ax.add_patch(Rectangle((minx, 4.25), maxx-minx, 0.25, edgecolor="black", facecolor="bisque", zorder=100))
-            ax.text((minx+maxx)//2, 4.355, entry.name, zorder=101, ha="center", va="center")
-            
-            pdf.savefig(figure)#, bbox_inches='tight')
-            
+        step = (len(xticks) // 20) + 1
+        ax.set_xticks(xticks[::step])
+        ax.set_xticklabels(xticklabels[::step], fontsize=8)
+        ax.tick_params(axis="x",length=0)
+        
+        ax.set_ylim(-0.3, 4.5)
+        ax.set_yticks([0, 1, 2, 3, 4])
+        ax.set_yticklabels(["0", "10", "100", "1000", "10,000"], fontsize=8)
+        ax.set_ylabel("Read Depth (log scale)", fontsize=10)
+        
+        ax.axhline(-0.2, color="black", linewidth=2, zorder=0)
+        #ax.set_xlabel("Exon", fontsize=10)
+        ax.set_title(self._title, fontsize=12)
+        ax.add_patch(Rectangle((minx, 4.25), maxx-minx, 0.25, edgecolor="black", facecolor="bisque", zorder=100))
+        ax.text((minx+maxx)//2, 4.355, name, zorder=101, ha="center", va="center")
+        
+        self._pdf.savefig(figure)#, bbox_inches='tight')
 
-
-def coverage_debug_plot(coverage, fn):
-    if not MATPLOTLIB:
-        return
     
-    with PdfPages(fn) as pdf:
-        for chrom in coverage.data.keys():
-            cov = coverage.data[chrom]
-            start = 1
-            for stop in range(start, len(cov)):
-                if cov[stop][1] - cov[stop][0] > 1000 and cov[stop][2] == 0:
-                    figure = Figure(figsize=(11.7, 4.15))
-                    FigureCanvasPdf(figure)
-                    ax = figure.gca()
-                    ax.plot([c[0] for c in cov[start:stop]], [c[2] for c in cov[start:stop]], "-", drawstyle="steps-post", color="dodgerblue", linewidth=1)
-                    ax.set_title(chrom, fontsize=12)
-                    pdf.savefig(figure)#, bbox_inches='tight')
-                    start = stop + 1
+    
+Correction = namedtuple("Correction", ["start", "stop", "fixed", "scaled"])
+
+
+
+class Scale():
+    def initialse(self, blocks):
+        iterblocks = iter(blocks)
+        block = next(iterblocks)
+        fixed = block.start
+        
+        try:
+            fixed -= self._corrections[-1].stop
+            self._corrections.append(Correction(block.start - 401, block.start - 1, None, None))
+        except AttributeError:
+            self._corrections = []
+            
+        for next_block in chain(iterblocks, (None,)):
+            self._corrections.append(Correction(block.start, block.stop, fixed, 1))
+            if next_block is not None:
+                actual_intron_size = next_block.start - block.stop - 1
+                scaled_intron_size = min(actual_intron_size, 200)
+                self._corrections.append(Correction(block.stop + 1, next_block.start - 1, fixed, float(scaled_intron_size) / actual_intron_size))
+                if scaled_intron_size < actual_intron_size:
+                    fixed += actual_intron_size - scaled_intron_size
+                block = next_block
+    
+    @property
+    def absolute_start(self):
+        return self._corrections[0].start
+    
+    @property
+    def relative_start(self):
+        return self(self.absolute_start)
+    
+    @property
+    def absolute_stop(self):
+        return self._corrections[-1].stop
+    
+    @property
+    def relative_stop(self):
+        return self(self.absolute_stop)
+
+    def __call__(self, pos):
+        for correction in self._corrections:
+            if correction.start <= pos <= correction.stop:
+                break
+        rel_pos = pos - correction.start
+        return correction.start - correction.fixed + (rel_pos * correction.scaled)
+
 
 
