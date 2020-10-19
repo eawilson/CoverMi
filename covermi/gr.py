@@ -1,19 +1,60 @@
 import csv, sys, pdb
-from itertools import islice, repeat, chain
+from itertools import islice, repeat, chain, cycle
 from collections import defaultdict, namedtuple
 import collections.abc
 from copy import copy
 
 
 
-__all__ = ["Entry", "Gr", "bed", "appris", "reference"]
+nucleotide = {"A": "R", "G": "R", "C": "Y", "T": "Y"}# puRine: A, G,  pYrimadine: T, C
+standard_chrom = {"1": "chr1",
+                  "2": "chr2",
+                  "3": "chr3",
+                  "4": "chr4",
+                  "5": "chr5",
+                  "6": "chr6",
+                  "7": "chr7",
+                  "8": "chr8",
+                  "9": "chr9",
+                  "10": "chr10",
+                  "11": "chr11",
+                  "12": "chr12",
+                  "13": "chr13",
+                  "14": "chr14",
+                  "15": "chr15",
+                  "16": "chr16",
+                  "17": "chr17",
+                  "18": "chr18",
+                  "19": "chr19",
+                  "20": "chr20",
+                  "21": "chr21",
+                  "22": "chr22",
+                  "23": "chrX",
+                  "chr23": "chrX",
+                  "x": "chrX",
+                  "chrx": "chrX",
+                  "X": "chrX",
+                  "24": "chrY",
+                  "chr24": "chrY",
+                  "y": "chrY",
+                  "chry": "chrY",
+                  "Y": "chrY",
+                  "25": "chrM",
+                  "chr25": "chrM",
+                  "m": "chrM",
+                  "chrm": "chrM",
+                  "M": "chrM"}
+                  
+
+
+__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "reference", "vcf", "DepthAltDepths", "MissingDict"]
 
 
 class Entry(object):
     __slots___ = ("chrom", "start", "stop", "name", "strand")
 
     def __init__(self, chrom, start, stop, name=".", strand="."):
-        self.chrom = chrom
+        self.chrom = standard_chrom.get(chrom, chrom)
         self.start = start
         self.stop = stop
         self.name = name
@@ -40,6 +81,68 @@ class Entry(object):
     @property
     def _tuple(self):
         return (self.chrom, self.start, self.stop, self.name, self.strand)
+
+
+
+class Variant(Entry):
+    __slots___ = ("ref", "alt", "depth", "alt_depth")
+
+    def __str__(self):
+        return "{}:{} {}/{}".format(self.chrom, self.start, self.ref, self.alt)
+
+    def __init__(self, chrom, pos, ref, alt, name=".", depth=None, alt_depth=None):
+        if ref == alt:
+            raise ValueError("Alt allele cannot be equal to ref allele")
+        while ref and alt and ref[0] == alt[0]:
+            ref = ref[1:]
+            alt = alt[1:]
+            pos += 1
+        while ref and alt and ref[-1] == alt[-1]:
+            ref = ref[:-1]
+            alt = alt[:-1]
+
+        self.ref = ref or "-"
+        self.alt = alt or "-"
+        self.depth = depth
+        self.alt_depth = alt_depth
+        super().__init__(chrom, pos, pos-1 if self.ref=="-" else pos+len(ref)-1, name)
+
+    @property
+    def pos(self):
+        return self.start
+
+    @property
+    def vartype(self):
+        if self.ref == "-":
+            return "ins"
+        elif self.alt == "-":
+            return "del"
+        elif len(self.ref) == len(self.alt) == 1:
+            return "snp"
+        else:
+            return "delins"
+
+    @property
+    def substitution(self):
+        try:
+            return "transition" if nucleotide[self.ref]==nucleotide[self.alt] else "transversion"
+        except KeyError:
+            return None
+
+    @property
+    def vaf(self):
+        return float(self.alt_depth)/self.depth
+
+    @property
+    def zygosity(self):
+        vaf = self.vaf
+        if 0.95 <= vaf:
+            zygosity = "hemizygous" if self.chrom in ("chrX", "chrY", "chrM") else "homozygous"
+        elif 0.45 <= vaf <= 0.55:
+            zygosity = "heterozygous"
+        else:
+            zygosity = "unknown"
+        return zygosity
 
 
 
@@ -277,13 +380,21 @@ class Gr(collections.abc.Mapping):
 
 
 
+class Deduplicate(dict):
+    def __missing__(self, key):
+        self[key] = key
+        return key
+
+
+
 def bed(path):
+    deduplicate = Deduplicate()
     with open(path, "rt") as f:
         for row in csv.reader(f, delimiter="\t"):
+            row[0] = deduplicate[row[0]]
             row[1] = int(row[1]) + 1
             row[2] = int(row[2])
-            row[3] = " ".join(row[3].split())
-            yield Entry(*row)
+            yield Entry(*row[:min(5, len(row))])
 
 
 
@@ -292,10 +403,11 @@ class MissingDict(dict):
         self._func = func
     
     def __repr__(self):
-        return "{}({}, {})".format(type(self).__name__, func.__name__, super().__repr__())
+        return "{}({}, {})".format(type(self).__name__, self._func.__name__, super().__repr__())
     
     def __missing__(self, key):
         return self._func()
+
 
 
 
@@ -329,12 +441,13 @@ def reference(path, what, names=(), principal=""):
         name = name.split()
         if len(name) == 1:
             needed_genes.add(name[0])
-        elif len(name) == 2:
+        elif len(name) > 1:
             needed_transcripts[name[0]] = name[1]
     
     # returns 2 if principal transcript, 1 if alternative and 0 otherwise
     score = appris(principal)
     
+    deduplicate = Deduplicate()
     transcript = None
     buffer = []
     found = set()
@@ -344,7 +457,7 @@ def reference(path, what, names=(), principal=""):
     source = None
     with open(path, "rt") as f:
         for row in f:
-            row = row.strip("\n ;").split("\t")
+            row = row.rstrip("\n ;").split("\t")
 
             if source is None:
                 source = ENSEMBL if row[0].startswith("#!genome-build") else REFSEQ
@@ -363,7 +476,7 @@ def reference(path, what, names=(), principal=""):
                     continue
                 found.add(name)
                 
-                chrom = row[2]
+                chrom = deduplicate[row[2]]
                 strand = row[3]
                 transcript_len = 0
                 coding_len = 0
@@ -471,7 +584,7 @@ def reference(path, what, names=(), principal=""):
                                 else:
                                     # Never tested by the looks of it! ? exon+1 correct or strand dependent
                                     #"{} e{}".format(name, entries[-1].exon+1)
-                                    entries.append(Entry(row[0], start, stop, name, strand))
+                                    entries.append(Entry(deduplicate[row[0]], start, stop, name, strand))
 
     notfound = ", ".join(sorted(set(names) - found))
     if notfound:
@@ -483,5 +596,115 @@ def reference(path, what, names=(), principal=""):
     for candidates in found_genes.values():
         for entry in sorted(candidates.items(), key=lambda x: sort_order[x[0]])[-1][1]:
             yield entry
+
+
+
+def vcf(path, name=".", format_index=9):
+    depth_alt_depths = DepthAltDepths(format_index)
+    with open(path, "rt") as f:
+        for row in f:
+            row = row.rstrip("\n ;").split("\t")
+            depth, alt_depths = depth_alt_depths(row)
+            for alt, alt_depth in zip(row[4].split(","), alt_depths):
+                if alt_depth and alt not in (ref, "."):
+                    yield Variant(row[0], int(row[1]), row[3], alt, name=name, depth=depth, alt_depth=alt_depth)
+
+
+
+class DepthAltDepths(object):
+    def __init__(self, format_values=9):
+        self._format_values = format_values
+        
+    def __call__(self, row):
+        try:
+            return self._func(row)
+        except AttributeError:
+            pass
+        self._func = self.choose_algorithm(row)
+        return self._func(row)
+
+
+    def choose_algorithm(self, row):
+        infodict = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
+        
+        for self.key1, self.key2, algorithm in (("FRO", "FAO", self.ro_ao_depth), ("RO", "AO", self.ro_ao_depth), ("FDP", "FAO", self.dp_ao_depth), ("DP", "AO", self.dp_ao_depth)):
+            if self.key1 in infodict and self.key2 in infodict:
+                return algorithm
+        
+        if len(row) > self._format_values: # has a format section
+            formatdict = dict(zip(row[8].split(":"), row[self._format_values].split(":")))
+            
+            # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
+            # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
+            if len(row[4].split(",")) + 1 == len(formatdict.get("AD", "").split(",")): # must have depth for ref and each alt.
+                return self.ad_depth
+            
+            if "AD" in formatdict and "RD" in formatdict:
+                return self.ad_rd_depth
+            
+            if "DP4" in formatdict:
+                return self.dp4_format_depth
+            
+        if "DP4" in infodict:
+            return self.dp4_info_depth
+            
+        if len(row) > self._format_values:
+            if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["DP", "DP2", "TIR"]):
+                return self.strelka_depth
+            
+        return self.no_depth
+            
+    
+    def ro_ao_depth(self, row):
+        info = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
+        ref_depth = int(info[self.key1])
+        alt_depths =  [int(d) for d in info[self.key2].split(",")]
+        return (ref_depth + sum(alt_depths), alt_depths)
+
+
+    def dp_ao_depth(self, row):
+        info = dict(kv for kv in row[7] if len(kv) == 2)
+        tot_depth = int(info[self.key1])
+        alt_depths =  [int(d) for d in info[self.altkey].split(",")]
+        return (tot_depth, alt_depths)
+
+
+    def ad_depth(self, row):
+        ad = [int(depth) for depth in row[self._format_values].split(":")[row[8].split(":").index("AD")].split(",")]
+        return (sum(ad), ad[1:])
+
+
+    def ad_rd_depth(self, row):
+        keys = row[8].split(":")
+        vals = row[self._format_values].split(":")
+        ad = int(vals[keys.index("AD")])
+        return (ad + int(vals[keys.index("RD")]), [ad])
+
+
+    def dp4_info_depth(self, row):
+        dp4 = [int(depth) for depth in row[7].split("DP4=")[1].split(";")[0].split(",")]
+        return (sum(dp4), [dp4[2] + dp4[3]])
+
+
+    def dp4_format_depth(self, row):
+        dp4 = [int(depth) for depth in dict(zip(row[8].split(":"), row[self._format_values].split(":")))["DP4"].split(",")]
+        return (sum(dp4), [dp4[2] + dp4[3]])
+        
+
+    def strelka_depth(self, row):
+        formatdict = dict(*zip(row[8].split(":"), row[self._format_values].split(":")))
+        if "CU" in formatdict:
+            depths = {key: sum(int(depth) for depth in formatdict[key].split(",")) for key in ("CU", "GU", "TU", "AU")}
+            tot_depth = sum(depths.values())
+            alt_depth = depths[row[4]+"U"]
+        else:
+            tot_depth = int(formatdict["DP"]) + int(formatdict["DP2"]) 
+            alt_depth = sum(int(depth) for depth in formatdict["TIR"].split(","))
+        return (tot_depth, [alt_depth])
+    
+
+    def no_depth(self, row):
+        return (1, [1])
+
 
 

@@ -14,7 +14,6 @@
 #	 AllExons:		genomic range
 #	 Excluded:		list of excluded amplicons
 import os, re, pdb
-import collections.abc
 
 from .gr import Gr, bed, reference
 
@@ -35,7 +34,7 @@ REGEXPS = (("reference", re.compile(GENE_SYMBOL+"\t"+REFSEQ_TRANSCRIPT+"\tchr.+?
 
 
 
-class Panel(collections.abc.Mapping):
+class Panel(object):
     def __init__(self, panel_path):
         self.path = panel_path
         self.paths = {}
@@ -71,15 +70,7 @@ class Panel(collections.abc.Mapping):
     
     def __repr__(self):
         return "{}({})".format(type(self).__name__, repr(self.path))
-    
-    
-    def __len__(self):
-        return len(self._data)
-    
-    
-    def __iter__(self):
-        return iter(self._data)
-    
+
     
     def __getattr__(self, key):
         try:
@@ -91,34 +82,47 @@ class Panel(collections.abc.Mapping):
     def __getitem__(self, key):
         try:
             return self._data[key]
-        except KeyError:
+        except KeyError as e:
             pass
         
-        if key == "names":
-            try:
-                with open(self.paths["names"], "rt") as f:
-                    val = sorted(f.read().splitlines())
-            except KeyError:
-                val = sorted(self["targets"].names)
-        
-        elif key == "targets":
-            val = Gr(bed(self.paths["targets"]))
-        
-        elif key in ("transcripts", "codingregions", "exons", "codingexons"):
-            val = Gr(reference(self.paths["reference"], key, names=self["names"], principal=self.paths.get("principal", "")))
-        
-        else:
-            raise KeyError(key)
+        try:
+            if key == "names":
+                try:
+                    with open(self.paths["names"], "rt") as f:
+                        val = set(f.read().splitlines())
+                except KeyError:
+                    val = self["targets"].names
+            
+            elif key == "targets":
+                try:
+                    val = Gr(bed(self.paths["targets"]))
+                except KeyError as e:
+                    val = self.exons
+            
+            elif key in ("transcripts", "codingregions", "exons", "codingexons"):
+                val = Gr(reference(self.paths["reference"], key, names=self["names"], principal=self.paths.get("principal", "")))
 
-        self._data[key] = val
-        return val
+            self._data[key] = val
+            return val
+        except Exception as e:
+            raise e from None
     
     
     def __contains__(self, key):
-        # Is this really what we want for names? ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-        return key in self.paths
+        if key == "names":
+            return "names" in self.paths or "targets" in self.paths
+        
+        elif key == "targets":
+            return "targets" in self.paths or ("names" in self.paths and "reference" in self.paths)
+        
+        elif key in ("transcripts", "codingregions", "exons", "codingexons"):
+            return "reference" in self.paths and "names" in self
+        
+        return False
 
 
+    def get(self, key):
+        return self[key]
 
 
 
