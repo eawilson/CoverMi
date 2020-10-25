@@ -1,4 +1,6 @@
-import csv, sys, pdb
+import csv, pdb
+import sys
+import gzip
 from itertools import islice, repeat, chain, cycle
 from collections import defaultdict, namedtuple
 import collections.abc
@@ -48,6 +50,12 @@ standard_chrom = {"1": "chr1",
 
 
 __all__ = ["Entry", "Gr", "Variant", "bed", "appris", "reference", "vcf", "DepthAltDepths", "MissingDict"]
+
+
+
+def gzopen(fn, *args, **kwargs):
+    return (gzip.open if fn.endswith(".gz") else open)(fn, *args, **kwargs)
+
 
 
 class Entry(object):
@@ -455,7 +463,7 @@ def reference(path, what, names=(), principal=""):
     found_transcripts = []
     sort_order = {}
     source = None
-    with open(path, "rt") as f:
+    with gzopen(path, "rt") as f:
         for row in f:
             row = row.rstrip("\n ;").split("\t")
 
@@ -649,7 +657,7 @@ class DepthAltDepths(object):
             return self.dp4_info_depth
             
         if len(row) > self._format_values:
-            if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["DP", "DP2", "TIR"]):
+            if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["TAR", "TIR"]):
                 return self.strelka_depth
             
         return self.no_depth
@@ -692,15 +700,18 @@ class DepthAltDepths(object):
         
 
     def strelka_depth(self, row):
-        formatdict = dict(*zip(row[8].split(":"), row[self._format_values].split(":")))
+        # https://github.com/Illumina/strelka/blob/v2.9.x/docs/userGuide/README.md#somatic
+        formatdict = dict(zip(row[8].split(":"), row[self._format_values].split(":")))
+        alt = row[4]
+        if "," in alt:
+            raise RuntimeError("Multiple variants per row in strelka vcf.")
         if "CU" in formatdict:
-            depths = {key: sum(int(depth) for depth in formatdict[key].split(",")) for key in ("CU", "GU", "TU", "AU")}
-            tot_depth = sum(depths.values())
-            alt_depth = depths[row[4]+"U"]
+            depth = sum(int(formatdict[key].split(",")[0]) for key in ("AU", "TU", "CU", "GU"))
+            alt_depth = int(formatdict[f"{alt}U"].split(",")[0])
         else:
-            tot_depth = int(formatdict["DP"]) + int(formatdict["DP2"]) 
-            alt_depth = sum(int(depth) for depth in formatdict["TIR"].split(","))
-        return (tot_depth, [alt_depth])
+            alt_depth = int(formatdict["TIR"].split(",")[0])
+            depth = int(formatdict["TAR"].split(",")[0]) + alt_depth
+        return (depth, [alt_depth])
     
 
     def no_depth(self, row):
