@@ -655,7 +655,7 @@ class DepthAltDepths(object):
             
         if "DP4" in infodict:
             return self.dp4_info_depth
-            
+        
         if len(row) > self._format_values:
             if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["TAR", "TIR"]):
                 return self.strelka_depth
