@@ -396,13 +396,17 @@ class Deduplicate(dict):
 
 
 def bed(path):
-    deduplicate = Deduplicate()
-    with open(path, "rt") as f:
-        for row in csv.reader(f, delimiter="\t"):
-            row[0] = deduplicate[row[0]]
-            row[1] = int(row[1]) + 1
-            row[2] = int(row[2])
-            yield Entry(*row[:min(5, len(row))])
+    if path:
+        deduplicate = Deduplicate()
+        with open(path, "rt") as f:
+            for row in csv.reader(f, delimiter="\t"):
+                row[0] = deduplicate[row[0]]
+                row[1] = int(row[1]) + 1
+                row[2] = int(row[2])
+                if len(row) < 6:
+                    yield Entry(*row)
+                else:
+                    yield Entry(*row[:5])
 
 
 
