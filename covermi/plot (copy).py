@@ -21,9 +21,9 @@ class Plot(object):
     def __init__(self, coverage=None, panel=None, depth=None, title=None, output="plot.pdf"):
         self._pdf = PdfPages(output)
         self._title = title
-
+        
         if panel is not None:
-            for name in panel.names:
+            for name in sorted(panel.names):
                 amplicons = Gr(entry for entry in panel.targets if entry.name == name)
                 exons = Gr(entry for entry in panel.exons if entry.name == name)
                 codingexons = Gr(entry for entry in panel.codingexons if entry.name == name)

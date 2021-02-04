@@ -1,10 +1,16 @@
-import csv, pdb
+import csv
+import pdb
 import sys
 import gzip
-from itertools import islice, repeat, chain, cycle
-from collections import defaultdict, namedtuple
+import os
+from itertools import islice, chain
+from collections import defaultdict
 import collections.abc
 from copy import copy
+
+
+
+__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "DepthAltDepths"]
 
 
 
@@ -45,11 +51,32 @@ standard_chrom = {"1": "chr1",
                   "chr25": "chrM",
                   "m": "chrM",
                   "chrm": "chrM",
-                  "M": "chrM"}
-                  
-
-
-__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "reference", "vcf", "DepthAltDepths", "MissingDict"]
+                  "M": "chrM",
+                  "NC_000001": "chr1",
+                  "NC_000002": "chr2",
+                  "NC_000003": "chr3",
+                  "NC_000004": "chr4",
+                  "NC_000005": "chr5",
+                  "NC_000006": "chr6",
+                  "NC_000007": "chr7",
+                  "NC_000008": "chr8",
+                  "NC_000009": "chr9",
+                  "NC_000010": "chr10",
+                  "NC_000011": "chr11",
+                  "NC_000012": "chr12",
+                  "NC_000013": "chr13",
+                  "NC_000014": "chr14",
+                  "NC_000015": "chr15",
+                  "NC_000016": "chr16",
+                  "NC_000017": "chr17",
+                  "NC_000018": "chr18",
+                  "NC_000019": "chr19",
+                  "NC_000020": "chr20",
+                  "NC_000021": "chr21",
+                  "NC_000022": "chr22",
+                  "NC_000023": "chrX",
+                  "NC_000024": "chrY",
+                  "NC_012920": "chrM"}
 
 
 
@@ -388,19 +415,16 @@ class Gr(collections.abc.Mapping):
 
 
 
-class Deduplicate(dict):
-    def __missing__(self, key):
-        self[key] = key
-        return key
+def bed(paths):
+    
+    try:
+        paths = (os.fspath(paths),)
+    except TypeError:
+        pass
 
-
-
-def bed(path):
-    if path:
-        deduplicate = Deduplicate()
+    for path in paths:
         with open(path, "rt") as f:
             for row in csv.reader(f, delimiter="\t"):
-                row[0] = deduplicate[row[0]]
                 row[1] = int(row[1]) + 1
                 row[2] = int(row[2])
                 if len(row) < 6:
@@ -410,24 +434,17 @@ def bed(path):
 
 
 
-class MissingDict(dict):
-    def __init__(self, func):
-        self._func = func
+def appris(paths):
+    # returns 2 if principal transcript, 1 if alternative
     
-    def __repr__(self):
-        return "{}({}, {})".format(type(self).__name__, self._func.__name__, super().__repr__())
-    
-    def __missing__(self, key):
-        return self._func()
+    try:
+        paths = (os.fspath(paths),)
+    except TypeError:
+        pass
 
-
-
-
-def appris(path):
-    # returns 2 if principal transcript, 1 if alternative and 0 otherwise
-    score = MissingDict(int)
+    score = {}
     if path:
-        with open(path, "rt") as f:
+        with gzopen(path, "rt") as f:
             for row in f:
                 row = row.split()
                 score[row[2].split(".")[0]] = row[4].startswith("PRINCIPAL") + 1
@@ -435,191 +452,280 @@ def appris(path):
 
 
 
-def reference(path, what, names=(), principal=""):
-    TRANSCRIPTS = 0
-    EXONS = 1
-    CODINGREGIONS = 2
-    CODINGEXONS = 3
-    ENSEMBL = 0
-    REFSEQ = 1
+def bases(components):
+    return sum(c.stop - c.start + 1 for c in components)
+
+
+
+def cannonical(elements):
+    return (bases(elements.get("CDS", ())), 
+            bases(elements.get("exon", ())), 
+            bases(elements.get("transcript", ())))
+
+
+
+SEQID = 0
+SOURCE = 1
+TYPE = 2
+START = 3
+END = 4
+SCORE = 5
+STRAND = 6
+PHASE = 7
+ATTRIBUTES = 8
+
+#def gff3(path, what, names=(), principal=""):
+    
+    #if what not in ("transcripts", "exons", "codingregions", "codingexons"):
+        #raise ValueError(f"Invalid value for what: {what}")
+    
+    #what = what[:-1]
+    #codingregion = what == "codingregion"
+    #if what == "codingexon":
+        #what = "CDS"
+    
+    #needed = defaultdict(list)
+    #for name in names:
+        #splitname = name.split()
+        #if splitname:
+            #needed[splitname[0]].extend(splitname[1:])
+    
+    #score = appris(principal)    
+    #matches = defaultdict(lambda:defaultdict(lambda:defaultdict(list)))
+    
+    #with gzopen(path, "rt") as f_in:
+        #match = False
+        #reader = csv.reader(f_in, delimiter="\t")
+        #for row in reader:
+            #if row[0].startswith("#"):
+                #continue
+            
+            #if match:
+                #if ";Parent=" in row[ATTRIBUTES]:
+                    #feature = row[TYPE]
+                    #if feature.endswith("transcript") or feature.endswith("RNA"):
+                        #try:
+                            #stop = row[ATTRIBUTES].index(";")
+                        #except ValueError:
+                            #stop = len(row[ATTRIBUTES])
+                        #transcript = row[ATTRIBUTES][3:stop].split(".")[0]
+                        #feature = "transcript"
+                    
+                    #entry = Entry(chrom, int(row[START]), int(row[END]), gene, strand)
+                    #matches[gene][transcript][feature].append(entry)
+                    #continue
+                #match = False
+        
+            #if row[TYPE] == "gene":
+                #try:
+                    #start = row[ATTRIBUTES].index(gene_name)
+                #except NameError:
+                    #if "gene_name=" in row[ATTRIBUTES]:
+                        #gene_name = "gene_name="
+                    #elif "Name=" in row[ATTRIBUTES]:
+                        #gene_name = "Name="
+                    #else:
+                        #raise ValueError("Gene name not found in attributes")
+                    #start = row[ATTRIBUTES].index(gene_name)
+                        
+                #start += len(gene_name)
+                #try:
+                    #stop = row[ATTRIBUTES].index(";", start)
+                #except ValueError:
+                    #stop = len(row[ATTRIBUTES])
+                #gene = row[ATTRIBUTES][start:stop]
+                #if not names or gene in needed:
+                    #chrom = row[SEQID].split(".")[0]
+                    #chrom = standard_chrom.get(chrom)
+                    #if chrom: # Remove patches
+                        #strand = row[STRAND]
+                        #match = True
+    
+    
+    #for gene in sorted(set(needed) - set(matches)):
+        #print(f"WARNING: {gene} not found in reference file", file=sys.stderr)
+    
+    #for gene, transcripts in sorted(matches.items()):
+        #selected = needed[gene]
+        #if not selected:
+            #if len(transcripts) == 1:
+                #selected = transcripts.keys()
+            #else:
+                #scored = ([], [])
+                #for transcript in transcripts:
+                    #try:
+                        #scored[score[transcript] - 1].append(transcript)
+                    #except KeyError:
+                        #pass
+                
+                #candidates = scored[1] or scored[0] or transcripts
+                #if len(candidates) == 1:
+                    #selected = candidates
+                #else:
+                    #selected = sorted(candidates, key=lambda t:cannonical(transcripts[t]))[-1:]
+        
+        #for transcript in selected:
+            #try:
+                #features = transcripts[transcript]
+            #except KeyError:
+                #print(f"WARNING: {transcript} not found in reference file", file=sys.stderr)
+                #continue
+            
+            #if codingregion:
+                #first = features["CDS"][0]
+                #last = features["CDS"][-1]
+                #start = min(first.start, last.start)
+                #stop = max(first.stop, last.stop)
+                #features["codingregion"] = (Entry(first.chrom, start, stop, first.name, first.strand),)
+            
+            #for entry in features[what]:
+                #if len(selected) > 1:
+                    #entry.name = f"{entry.name} {transcript}"
+                #yield entry
+
+
+ENSEMBL_REFSEQ_PREFIXES = set(["ENS", "NM_", "NR_", "XM_", "XR_"])
+
+
+def gff3(paths, what, names=(), principal=()):
+    
+    if what not in ("transcripts", "exons", "codingregions", "codingexons"):
+        raise ValueError(f"Invalid value for what: {what}")
+    
+    what = what[:-1] # remove trailing s
+    codingregion = what == "codingregion"
+    if what in ("codingregion", "codingexon"):
+        what = "CDS"
+    
     try:
-        what = {"transcripts": TRANSCRIPTS, "exons": EXONS, "codingregions": CODINGREGIONS, "codingexons": CODINGEXONS}[what]
-    except KeyError:
-        raise ValueError("invalid 'what' for reference()")
+        paths = (os.fspath(paths),)
+    except TypeError:
+        pass
     
-    needed_genes = set()
-    needed_transcripts = MissingDict(str)
+    needed = defaultdict(list)
     for name in names:
-        name = name.split()
-        if len(name) == 1:
-            needed_genes.add(name[0])
-        elif len(name) > 1:
-            needed_transcripts[name[0]] = name[1]
+        splitname = name.split()
+        if splitname:
+            needed[splitname[0]].extend(splitname[1:])
     
-    # returns 2 if principal transcript, 1 if alternative and 0 otherwise
-    score = appris(principal)
+    score = appris(principal)    
+    matches = defaultdict(lambda:defaultdict(lambda:defaultdict(list)))
     
-    deduplicate = Deduplicate()
-    transcript = None
-    buffer = []
-    found = set()
-    found_genes = defaultdict(lambda:defaultdict(list))
-    found_transcripts = []
-    sort_order = {}
-    source = None
-    with gzopen(path, "rt") as f:
-        for row in f:
-            row = row.rstrip("\n ;").split("\t")
-
-            if source is None:
-                source = ENSEMBL if row[0].startswith("#!genome-build") else REFSEQ
-
-            if source == REFSEQ:
-                gene = row[0]
-                transcript = row[1]
-                
-                if transcript == needed_transcripts[gene]:
-                    name = f"{gene} {transcript}"
-                    entries = found_transcripts
-                elif gene in needed_genes:
-                    name = gene
-                    entries = found_genes[gene][transcript]
-                else:
+    gene_name = ""
+    for path in paths:
+        del gene_name
+        with gzopen(path, "rt") as f_in:
+            transcript = ""
+            reader = csv.reader(f_in, delimiter="\t")
+            for row in reader:
+                if row[0].startswith("#"):
                     continue
-                found.add(name)
                 
-                chrom = deduplicate[row[2]]
-                strand = row[3]
-                transcript_len = 0
-                coding_len = 0
-                if what == TRANSCRIPTS:
-                    entries.append(Entry(chrom, int(row[4])+1, int(row[5]), name, strand))
-
-                elif what == CODINGREGIONS:
-                    start = int(row[6]) + 1
-                    stop = int(row[7])
-                    if stop >= start:
-                        entries.append(Entry(chrom, start, stop, name, strand))
-
-                if what == EXONS or entries is not found_transcripts:
-                    exon_numbers = range(1,int(row[8])+1) if (strand=="+") else range(int(row[8]),0,-1)            
-                    for start, stop, exon in zip(row[9].rstrip(",").split(","), row[10].rstrip(",").split(","), exon_numbers):
-                        start = int(start) + 1
-                        stop = int(stop)
-                        transcript_len += stop - start + 1
-                        if what == EXONS:
-                            #name = f"{name} e{exon}"
-                            entries.append(Entry(chrom, start, stop, name, strand))
+                feature = row[TYPE]
                 
-                if what == CODINGEXONS or entries is not found_transcripts:
-                    exon_numbers = range(1,int(row[8])+1) if (strand=="+") else range(int(row[8]),0,-1)
-                    codingstart = int(row[6]) + 1
-                    codingstop = int(row[7])
-                    for start, stop, exon in zip(row[9].rstrip(",").split(","), row[10].rstrip(",").split(","), exon_numbers):
-                        start = int(start) + 1
-                        stop = int(stop)
-                        if stop >= codingstart and start <= codingstop:
-                            start = max(codingstart, start)
-                            stop = min(codingstop, stop)
-                            coding_len += stop - start + 1
-                            if what == CODINGEXONS:
-                                #name = f"{name} e{exon}"
-                                entries.append(Entry(chrom, start, stop, name, strand))
+                if feature.endswith("transcript") or feature.endswith("RNA"):
+                    transcript = ""
+                    attributes = row[ATTRIBUTES]
+                    try:
+                        start = attributes.index(gene_name)
+                    except NameError:
+                        if "gene_name=" in attributes:
+                            gene_name = "gene_name="
+                        elif "Name=" in attributes:
+                            gene_name = "gene="
+                        else:
+                            raise ValueError("Gene name not found in transcript attributes")
+                        start = attributes.index(gene_name)
+                    except ValueError:
+                        continue
+                            
+                    start += len(gene_name)
+                    try:
+                        stop = attributes.index(";", start)
+                    except ValueError:
+                        stop = len(attributes)
+                    gene = attributes[start:stop]
+                    
+                    if not names or gene in needed:
+                        chrom = row[SEQID].split(".")[0]
+                        chrom = standard_chrom.get(chrom, chrom)
+                        strand = row[STRAND]
+                        feature = "transcript"
+                        start = attributes.index("transcript_id=") + 14
+                        try:
+                            stop = attributes.index(";", start)
+                        except ValueError:
+                            stop = len(attributes)
+                        transcript = attributes[start:stop]
+                        if transcript[:3] in ENSEMBL_REFSEQ_PREFIXES:
+                            transcript = transcript.split(".")[0]
+                                                
+                if transcript and feature in ("transcript", "exon", "CDS"):
+                    entry = Entry(chrom, int(row[START]), int(row[END]), gene, strand)
+                    matches[gene][transcript][feature].append(entry)
+    
+    
+    for gene in sorted(set(needed) - set(matches)):
+        print(f"WARNING: {gene} not found in reference file", file=sys.stderr)
+    
+    for gene, transcripts in sorted(matches.items()):
+        selected = needed[gene]
+        if not selected:
+            if len(transcripts) == 1:
+                selected = transcripts.keys()
+            else:
+                scored = ([], [])
+                for transcript in transcripts:
+                    try:
+                        scored[score[transcript] - 1].append(transcript)
+                    except KeyError:
+                        pass
                 
-                if entries is not found_transcripts:
-                    sort_order[transcript] = (score[transcript], coding_len, transcript_len, -int(transcript[3:]))
+                candidates = scored[1] or scored[0] or transcripts
+                if len(candidates) == 1:
+                    selected = candidates
+                else:
+                    selected = sorted(candidates, key=lambda t:cannonical(transcripts[t]))[-1:]
+        
+        for transcript in selected:
+            if transcript not in transcripts:
+                print(f"WARNING: {transcript} not found in reference file", file=sys.stderr)
+                continue
+            
+            features = transcripts[transcript]
+            if codingregion and "CDS" in features:
+                first = features["CDS"][0]
+                last = features["CDS"][-1]
+                yield Entry(first.chrom,
+                            min(first.start, last.start),
+                            max(first.stop, last.stop),
+                            first.name,
+                            first.strand)
 
             else:
-                if not row[0].startswith("#"):
-                    #chrom, source, feature, start, stop, score, strand, phase, keyvals = row
-                    feature = row[2]
-
-                    if feature == "transcript":
-                        keyvals = {key: val for key, val in [keyval.split() for keyval in row[8].split("; ")]}
-                        gene = keyvals["gene_name"].strip('"')
-                        transcript = keyvals["transcript_id"].strip('"')
-                        
-                        if transcript == needed_transcripts[gene]:
-                            name = f"{gene} {transcript}"
-                            entries = found_transcripts
-                        elif gene in needed_genes:
-                            name = gene
-                            entries = found_genes[gene][transcript]
-                        else:
-                            transcript = None
-                            continue
-                        found.add(name)
-                        cds_startstop = None
-
-                        if what == TRANSCRIPTS:
-                            entries.append(Entry(row[0], int(row[3]), int(row[4]), name, row[6]))
-                        
-                        if entries is not found_transcripts:
-                            sort_order[transcript] = [row[1] == "ensembl_havana", score[transcript], 0, 0, -int(transcript[4:])]
-
-                    elif transcript:
-                        keyvals = {key: val for key, val in [keyval.split() for keyval in row[8].split("; ")]}
-                        start = int(row[3])
-                        stop = int(row[4])
-                        if feature == "exon":
-                            if what == EXONS:
-                                #"{} e{}".format(name, keyvals["exon_number"].strip('"'))
-                                entries.append(Entry(row[0], start, stop, name, row[6]))
-                            if entries is not found_transcripts:
-                                sort_order[transcript][3] += stop - start + 1
-
-                        elif feature == "CDS":
-                            strand = row[6]
-                            if what == CODINGEXONS:
-                                #"{} e{}".format(name, keyvals["exon_number"].strip('"'))
-                                entries.append(Entry(row[0], start, stop, name, strand))
-                            elif what == CODINGREGIONS and cds_startstop is None:
-                                cds_startstop = start if strand == "+" else stop
-                            if entries is not found_transcripts:
-                                sort_order[transcript][2] += stop - start + 1
-
-                        elif feature == "stop_codon":
-                            strand = row[6]
-                            if what == CODINGREGIONS:
-                                if strand == "+":
-                                    cds_start = cds_startstop
-                                    cds_stop = stop
-                                else:
-                                    cds_start = start
-                                    cds_stop = cds_startstop
-                                entries.append(Entry(row[0], int(cds_start), int(cds_stop), name, strand))
-                            elif what == CODINGEXONS:
-                                if strand == "+" and entries[-1].stop + 1 == start:
-                                    entries[-1].stop = stop
-                                elif strand == "-" and entries[-1].start - 1 == stop:
-                                    entries[-1].start = start
-                                else:
-                                    # Never tested by the looks of it! ? exon+1 correct or strand dependent
-                                    #"{} e{}".format(name, entries[-1].exon+1)
-                                    entries.append(Entry(deduplicate[row[0]], start, stop, name, strand))
-
-    notfound = ", ".join(sorted(set(names) - found))
-    if notfound:
-        print(f"WARNING: {notfound} not found in reference file", file=sys.stderr)
-
-    for entry in found_transcripts:
-        yield entry
-
-    for candidates in found_genes.values():
-        for entry in sorted(candidates.items(), key=lambda x: sort_order[x[0]])[-1][1]:
-            yield entry
+                for entry in features.get(what, ()):
+                    if len(selected) > 1:
+                        entry.name = f"{entry.name} {transcript}"
+                    yield entry
 
 
 
-def vcf(path, name=".", format_index=9):
-    depth_alt_depths = DepthAltDepths(format_index)
-    with open(path, "rt") as f:
-        for row in f:
-            row = row.rstrip("\n ;").split("\t")
-            depth, alt_depths = depth_alt_depths(row)
-            for alt, alt_depth in zip(row[4].split(","), alt_depths):
-                if alt_depth and alt not in (ref, "."):
-                    yield Variant(row[0], int(row[1]), row[3], alt, name=name, depth=depth, alt_depth=alt_depth)
+def vcf(paths, name=".", format_index=9):
+    
+    try:
+        paths = (os.fspath(paths),)
+    except TypeError:
+        pass
+
+    for path in paths:
+        depth_alt_depths = DepthAltDepths(format_index)
+        with open(path, "rt") as f:
+            for row in f:
+                row = row.rstrip("\n ;").split("\t")
+                depth, alt_depths = depth_alt_depths(row)
+                for alt, alt_depth in zip(row[4].split(","), alt_depths):
+                    if alt_depth and alt not in (ref, "."):
+                        yield Variant(row[0], int(row[1]), row[3], alt, name=name, depth=depth, alt_depth=alt_depth)
 
 
 
