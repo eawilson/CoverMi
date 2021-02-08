@@ -4,9 +4,10 @@ from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 
 import pdb
+import re
 from math import log10
 from itertools import cycle, chain
-from collections import namedtuple
+from collections import namedtuple, defaultdict
     
 from .gr import Gr
 from .cov import bisect_left
@@ -37,20 +38,17 @@ class Plot(object):
         
         if panel is not None:
             targets = defaultdict(list)
+            sep = re.compile("[,;]")
             for target in panel.targets:
-                for name in target.split(";"):
-                    targets[name].append(target)
+                for name in sep.split(target.name):
+                    targets[name.strip()].append(target)
             
-            #for name, amplicons in sorted(targets.items()):
-                #ampicons = Gr(amplicons)
-                #exons = Gr(entry for entry in panel.exons if entry.name == name)
-                #if exons:
-                    #codingexons = Gr(entry for entry in panel.codingexons if entry.name == name)
-                #else:
-                    
-                    
-                #self.figure(name, coverage, exons, codingexons, amplicons, depth)
-            #self.close()
+            for name, amplicons in sorted(targets.items()):
+                amplicons = Gr(amplicons)
+                exons = Gr(entry for entry in panel.exons if entry.name == name)
+                codingexons = Gr(entry for entry in panel.codingexons if entry.name == name) if exons else Gr()                    
+                self.figure(name, coverage, exons, codingexons, amplicons)
+            self.close()
     
     
     def __enter__(self):
@@ -164,7 +162,7 @@ class Scale():
         
         try:
             fixed -= self._corrections[-1].stop
-            self._corrections.append(Correction(block.start - 401, block.start - 1, None, None))
+            self._corrections.append(Correction(block.start - 401, block.start - 1, 0, 0))
         except AttributeError:
             self._corrections = []
             

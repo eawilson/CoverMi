@@ -101,7 +101,10 @@ class Panel(object):
                         if name:
                             val.add(name)
             if not val:
-                val = set(chain(*(target.name.split(";") for target in self.targets)))
+                sep = re.compile("[,;]")
+                for target in self.targets:
+                    for name in sep.split(target.name):
+                        val.add(name.strip())
         
         elif key == "targets":
             if "targets" in self.paths:

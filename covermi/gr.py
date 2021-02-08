@@ -423,7 +423,7 @@ def bed(paths):
         pass
 
     for path in paths:
-        with open(path, "rt") as f:
+        with gzopen(path, "rt") as f:
             for row in csv.reader(f, delimiter="\t"):
                 row[1] = int(row[1]) + 1
                 row[2] = int(row[2])
@@ -443,7 +443,7 @@ def appris(paths):
         pass
 
     score = {}
-    if path:
+    for path in paths:
         with gzopen(path, "rt") as f:
             for row in f:
                 row = row.split()
