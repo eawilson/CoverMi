@@ -10,11 +10,14 @@ from copy import copy
 
 
 
-__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "DepthAltDepths"]
+__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "DepthAltDepths", "chromosome_order"]
 
 
 
 nucleotide = {"A": "R", "G": "R", "C": "Y", "T": "Y"}# puRine: A, G,  pYrimadine: T, C
+
+ENSEMBL_REFSEQ_PREFIXES = set(["ENS", "NM_", "NR_", "XM_", "XR_"])
+
 standard_chrom = {"1": "chr1",
                   "2": "chr2",
                   "3": "chr3",
@@ -77,6 +80,13 @@ standard_chrom = {"1": "chr1",
                   "NC_000023": "chrX",
                   "NC_000024": "chrY",
                   "NC_012920": "chrM"}
+
+
+
+def chromosome_order(key):
+    if key.startswith("chr"):
+        key = key[3:]
+    return ("", int(key)) if key.isnumeric() else (key, 0)
 
 
 
@@ -242,8 +252,8 @@ class Gr(collections.abc.Mapping):
 
 
     def __iter__(self):
-        for key, chrom in sorted(self._data.items()):
-            yield from chrom
+        for key in sorted(self._data.keys(), key=chromosome_order):
+            yield from self._data[key]
 
 
     def __getitem__(self, key):
@@ -436,18 +446,19 @@ def bed(paths):
 
 def appris(paths):
     # returns 2 if principal transcript, 1 if alternative
-    
-    try:
-        paths = (os.fspath(paths),)
-    except TypeError:
-        pass
-
     score = {}
-    for path in paths:
-        with gzopen(path, "rt") as f:
-            for row in f:
-                row = row.split()
-                score[row[2].split(".")[0]] = row[4].startswith("PRINCIPAL") + 1
+    
+    if paths:
+        try:
+            paths = (os.fspath(paths),)
+        except TypeError:
+            pass
+
+        for path in paths:
+            with gzopen(path, "rt") as f:
+                for row in f:
+                    row = row.split()
+                    score[row[2].split(".")[0]] = row[4].startswith("PRINCIPAL") + 1
     return score
 
 
@@ -584,8 +595,6 @@ ATTRIBUTES = 8
                 #yield entry
 
 
-ENSEMBL_REFSEQ_PREFIXES = set(["ENS", "NM_", "NR_", "XM_", "XR_"])
-
 
 def gff3(paths, what, names=(), principal=()):
     
@@ -614,6 +623,12 @@ def gff3(paths, what, names=(), principal=()):
     gene_name = ""
     for path in paths:
         del gene_name
+        
+        # These 3 variabls are used for weeding out refseq duplicate genes
+        gene_attr = ""
+        refseq = True
+        valid_gene = True
+        
         with gzopen(path, "rt") as f_in:
             transcript = ""
             reader = csv.reader(f_in, delimiter="\t")
@@ -623,7 +638,10 @@ def gff3(paths, what, names=(), principal=()):
                 
                 feature = row[TYPE]
                 
-                if feature.endswith("transcript") or feature.endswith("RNA"):
+                if feature == "gene":
+                    gene_attr = row[ATTRIBUTES]
+                
+                if (feature.endswith("transcript") or feature.endswith("RNA")):
                     transcript = ""
                     attributes = row[ATTRIBUTES]
                     try:
@@ -647,23 +665,40 @@ def gff3(paths, what, names=(), principal=()):
                     gene = attributes[start:stop]
                     
                     if not names or gene in needed:
-                        chrom = row[SEQID].split(".")[0]
-                        chrom = standard_chrom.get(chrom, chrom)
-                        strand = row[STRAND]
-                        feature = "transcript"
-                        start = attributes.index("transcript_id=") + 14
-                        try:
-                            stop = attributes.index(";", start)
-                        except ValueError:
-                            stop = len(attributes)
-                        transcript = attributes[start:stop]
-                        if transcript[:3] in ENSEMBL_REFSEQ_PREFIXES:
-                            transcript = transcript.split(".")[0]
+                        
+                        # Remove refseq duplicate genes
+                        if refseq:
+                            name = ""
+                            ident = ""
+                            for attr in gene_attr.split(";"):
+                                if attr.startswith("ID="):
+                                    ident = attr[8:]
+                                elif attr.startswith("Name="):
+                                    name = attr[5:]
+                            if ident and name:
+                                valid_gene = (ident == name)
+                            else:
+                                refseq = False
+                        
+                        if valid_gene:
+                            chrom = row[SEQID].split(".")[0]
+                            chrom = standard_chrom.get(chrom, chrom)
+                            strand = row[STRAND]
+                            feature = "transcript"
+                            start = attributes.index("transcript_id=") + 14
+                            try:
+                                stop = attributes.index(";", start)
+                            except ValueError:
+                                stop = len(attributes)
+                            transcript = attributes[start:stop]
+                            if transcript[:3] in ENSEMBL_REFSEQ_PREFIXES:
+                                transcript = transcript.split(".")[0]
+                        else:
+                            print(f"Excluding duplicate gene {ident}", file=sys.stderr)
                                                 
                 if transcript and feature in ("transcript", "exon", "CDS"):
                     entry = Entry(chrom, int(row[START]), int(row[END]), gene, strand)
                     matches[gene][transcript][feature].append(entry)
-    
     
     for gene in sorted(set(needed) - set(matches)):
         print(f"WARNING: {gene} not found in reference file", file=sys.stderr)

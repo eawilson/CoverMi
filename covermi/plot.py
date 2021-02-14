@@ -9,7 +9,7 @@ from math import log10
 from itertools import cycle, chain
 from collections import namedtuple, defaultdict
     
-from .gr import Gr
+from .gr import Gr, chromosome_order
 from .cov import bisect_left
 
 
@@ -35,7 +35,6 @@ class Plot(object):
         
         self._pdf = PdfPages(output)
         self._title = title        
-        
         if panel is not None:
             targets = defaultdict(list)
             sep = re.compile("[,;]")
@@ -68,24 +67,25 @@ class Plot(object):
         FigureCanvasPdf(figure)
         ax = figure.gca()
         
-        blocks = amplicons.combined_with(exons).merged
+        allblocks = amplicons.combined_with(exons).merged
         xscale = Scale()
         xticklabels = []
         xticks = []
         yscale = self._yscale
-        for chrom in sorted(blocks.keys()):
-            xscale.initialse(blocks[chrom])
+        for chrom in sorted(allblocks.keys(), key=chromosome_order):
+            blocks = allblocks[chrom]
+            xscale.initialse(blocks)
             
             # coverage
             if coverage:
-                xy = [(xscale.relative_start, yscale(0))]
-                bisect = bisect_left(coverage[chrom], xscale.absolute_start) # leftmost coverage.stop >= entry.start
+                xy = [(xscale(blocks[0].start), yscale(0))]
+                bisect = bisect_left(coverage[chrom], blocks[0].start) # leftmost coverage.stop >= entry.start
                 for cstart, cstop, cdepth in coverage[chrom][bisect:]:
-                    xy.append((xscale(max(xscale.absolute_start, cstart)), yscale(cdepth)))
-                    if cstop >= xscale.absolute_stop:
-                        xy.append((xscale.relative_stop, yscale(cdepth)))
+                    xy.append((xscale(max(blocks[0].start, cstart)), yscale(cdepth)))
+                    if cstop >= blocks[-1].stop:
+                        xy.append((xscale(blocks[-1].stop), yscale(cdepth)))
                         break
-                xy.append((xscale.relative_stop, yscale(0)))
+                xy.append((xscale(blocks[-1].stop), yscale(0)))
                 xs, ys = zip(*xy)
                 ax.plot(list(xs), list(ys), "-", drawstyle="steps-post", color="dodgerblue", linewidth=1)
 
@@ -102,7 +102,6 @@ class Plot(object):
                 ax.add_patch(Rectangle((xscale(exon.start), -0.3), exon.stop-exon.start+1, 0.2, edgecolor="black", facecolor="black"))
             xticklabels.extend(range(len(_xticks), 0, -1) if exons and next(iter(exons)).strand == "-" else range(1, len(_xticks)+1))
             xticks.extend(_xticks)
-
             ## variants       
             #if "variants_mutation" in panel:
                 #if "depth" in panel:
@@ -117,9 +116,9 @@ class Plot(object):
         if depth:
             ax.axhline(yscale(depth), color="black", linewidth=0.5, linestyle=":")
 
-        border = (xscale.relative_stop - xscale.relative_start) * 6/100
-        minx = xscale.relative_start - border
-        maxx = xscale.relative_stop + border
+        border = xscale(blocks[-1].stop) * 6/100
+        minx = -border
+        maxx = xscale(blocks[-1].stop) + border
         if exons and next(iter(exons)).strand == "-":
             minx, maxx = (maxx, minx)
 
@@ -155,42 +154,22 @@ Correction = namedtuple("Correction", ["start", "stop", "fixed", "scaled"])
 
 
 class Scale():
-    def initialse(self, blocks):
-        iterblocks = iter(blocks)
-        block = next(iterblocks)
-        fixed = block.start
-        
+    def initialse(self, blocks):        
+        fixed = blocks[0].start 
         try:
-            fixed -= self._corrections[-1].stop
-            self._corrections.append(Correction(block.start - 401, block.start - 1, 0, 0))
+            fixed -= self._corrections[-1].stop + 1 - self._corrections[-1].fixed + 400
         except AttributeError:
-            self._corrections = []
+            pass
+        self._corrections = []
             
-        for next_block in chain(iterblocks, (None,)):
-            self._corrections.append(Correction(block.start, block.stop, fixed, 1))
-            if next_block is not None:
-                actual_intron_size = next_block.start - block.stop - 1
+        for i in range(len(blocks)):
+            self._corrections.append(Correction(blocks[i].start, blocks[i].stop, fixed, 1))
+            if i < len(blocks) - 1:
+                actual_intron_size = blocks[i+1].start - blocks[i].stop - 1
                 scaled_intron_size = min(actual_intron_size, 200)
-                self._corrections.append(Correction(block.stop + 1, next_block.start - 1, fixed, float(scaled_intron_size) / actual_intron_size))
+                self._corrections.append(Correction(blocks[i].stop + 1, blocks[i+1].start - 1, fixed, float(scaled_intron_size) / actual_intron_size))
                 if scaled_intron_size < actual_intron_size:
                     fixed += actual_intron_size - scaled_intron_size
-                block = next_block
-    
-    @property
-    def absolute_start(self):
-        return self._corrections[0].start
-    
-    @property
-    def relative_start(self):
-        return self(self.absolute_start)
-    
-    @property
-    def absolute_stop(self):
-        return self._corrections[-1].stop
-    
-    @property
-    def relative_stop(self):
-        return self(self.absolute_stop)
 
     def __call__(self, pos):
         for correction in self._corrections:
