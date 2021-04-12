@@ -893,6 +893,7 @@ def depth_alt_depth_function(row):
         raise RuntimeError("Multiple variants per row")
     
     info = infodict(row)
+    fmt = formatdict(row) if len(row) > FORMAT + 1 else {}
 
     # Vardict vcf
     if "VD" in fmt and "DP" in info:
@@ -910,26 +911,23 @@ def depth_alt_depth_function(row):
     if "DP" in info and "AO" in info:
         return ao_dp_dad
     
-    if len(row) > FORMAT + 1:
-        fmt = formatdict(row)
-        
-        # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
-        # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
-        if "," in fmt.get("AD", ()): # Will fail with multiple variants on same line
-            return ad_dad
+    # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
+    # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
+    if "," in fmt.get("AD", ()): # Will fail with multiple variants on same line
+        return ad_dad
+
+    if "AD" in fmt and "RD" in fmt:
+        return ad_rd_dad
     
-        if "AD" in fmt and "RD" in fmt:
-            return ad_rd_dad
+    if "DP4" in fmt:
+        return dp4_format_dad
+    
+    if all(key in fmt for key in ("GU", "CU", "AU", "TU")):
+        return strelka_dad
         
-        if "DP4" in fmt:
-            return dp4_format_dad
-        
-        if all(key in fmt for key in ("GU", "CU", "AU", "TU")):
-            return strelka_dad
-            
-        if "TAR" in fmt and "TIR" in fmt:
-            return tar_tir_dad
-        
+    if "TAR" in fmt and "TIR" in fmt:
+        return tar_tir_dad
+    
     if "DP4" in info:
         return dp4_info_dad
         
