@@ -9,8 +9,7 @@ import collections.abc
 from copy import copy
 
 
-
-__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "DepthAltDepths", "chromosome_order"]
+__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "depth_alt_depth_function", "chromosome_order"]
 
 
 
@@ -744,123 +743,196 @@ def gff3(paths, what, names=(), principal=()):
                     yield entry
 
 
+CHROM = 0
+POS = 1
+ID = 2
+REF = 3
+ALT = 4
+QUAL = 5
+FILTER = 6
+INFO = 7
+FORMAT = 8
 
-def vcf(paths, name=".", format_index=9):
+def vcf(paths, name="."):
     
     try:
         paths = (os.fspath(paths),)
     except TypeError:
         pass
 
+    depth_alt_depth = None
     for path in paths:
-        depth_alt_depths = DepthAltDepths(format_index)
+        del depth_alt_depth
         with open(path, "rt") as f:
             for row in f:
-                row = row.rstrip("\n ;").split("\t")
-                depth, alt_depths = depth_alt_depths(row)
-                for alt, alt_depth in zip(row[4].split(","), alt_depths):
-                    if alt_depth and alt not in (ref, "."):
-                        yield Variant(row[0], int(row[1]), row[3], alt, name=name, depth=depth, alt_depth=alt_depth)
+                if not row.startswith("#"):
+                    row = row.rstrip("\n ;").split("\t")
+                    try:
+                        dp, ad = depth_alt_depth(row)
+                    except NameError:
+                        depth_alt_depth = depth_alt_depth_function(row)
+                        dp, ad = depth_alt_depth(row)
+                    if ad != 0 and row[ALT] not in (row[REF], "."):
+                        yield Variant(row[CHROM], int(row[POS]), row[REF], row[ALT], name, dp, ad)
+                            
+
+
+def vd_dp_dad(row):
+    info = infodict(row)
+    return (int(info["DP"]), int(info["VD"]))
 
 
 
-class DepthAltDepths(object):
-    def __init__(self, format_values=9):
-        self._format_values = format_values
-        
-    def __call__(self, row):
+def ao_ro_dad(row):
+    info = infodict(row)
+    ad = int(info["AO"])
+    return (int(info["RO"]) + ad, ad)
+
+
+
+def fao_fro_dad(row):
+    info = infodict(row)
+    ad = int(info["FAO"])
+    return (int(info["FRO"]) + ad, ad)
+
+
+
+def ao_dp_dad(row):
+    info = infodict(row)
+    return (int(info["DP"]), int(info["AO"]))
+
+
+
+def fao_fdp_dad(row):
+    info = infodict(row)
+    return (int(info["FDP"]), int(info["FAO"]))
+
+
+
+def ad_dad(row):
+    ref, alt = formatdict(row)["AD"].split(",")
+    ad = int(alt)
+    return (int(ref) + ad, ad)
+
+
+
+def ad_rd_dad(row):
+    fmt = formatdict(row)
+    ad = int(fmt["AD"])
+    return (int("RD") + ad, ad)
+
+
+
+def dp4_format_dad(row):
+    fmt = formatdict(row)
+    dp4 = [int(num) for num in fmt["DP4"].split(",")]
+    ad = dp4[2] + dp4[3]
+    return (dp4[0] + dp4[1] + ad, ad)
+
+
+
+def dp4_info_dad(row):
+    info = infodict(row)
+    dp4 = [int(num) for num in info["DP4"].split(",")]
+    ad = dp4[2] + dp4[3]
+    return (dp4[0] + dp4[1] + ad, ad)
+
+    
+
+def strelka_dad(row):
+    # https://github.com/Illumina/strelka/blob/v2.9.x/docs/userGuide/README.md#somatic
+    fmt = formatdict(row)
+    alt = row[ALT]
+    if "," in alt:
+        raise RuntimeError("Multiple variants per row")
+    ad = int(fmt[f"{alt}U"].split(",")[0])
+    dp = sum(int(fmt[key].split(",")[0]) for key in ("AU", "TU", "CU", "GU"))
+    return (dp, ad)
+
+
+
+def tar_tir_dad(row):
+    # https://github.com/Illumina/strelka/blob/v2.9.x/docs/userGuide/README.md#somatic
+    fmt = formatdict(row)
+    alt = row[4]
+    if "," in alt:
+        raise RuntimeError("Multiple variants per row")
+    ad = int(fmt["TIR"].split(",")[0])
+    dp = int(fmt["TAR"].split(",")[0]) + ad
+    return (dp, ad)
+
+
+
+def no_dad(row):
+    return (None, None)
+
+
+
+def infodict(row):
+    infodict = {}
+    for token in row[INFO].split(";"):
         try:
-            return self._func(row)
-        except AttributeError:
-            pass
-        self._func = self.choose_algorithm(row)
-        return self._func(row)
+            k, v = token.split("=")
+        except ValueError:
+            k = token
+            v = None
+        infodict[k] = v
+    return infodict
 
 
-    def choose_algorithm(self, row):
-        infodict = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
+
+def formatdict(row):
+    return dict(zip(row[FORMAT].split(":"), row[FORMAT+1].split(":")))
+
+
+
+def depth_alt_depth_function(row):
+    ### Will fall down if a vcf contains multiple variants on the same line
+    ###
+    if "," in row[ALT]:
+        raise RuntimeError("Multiple variants per row")
+    
+    info = infodict(row)
+
+    # Vardict vcf
+    if "VD" in fmt and "DP" in info:
+        return vd_dp_dad
+
+    if "FRO" in info and "FAO" in info:
+        return fao_fro_dad
+    
+    if "RO" in info and "AO" in info:
+        return ao_ro_dad
+    
+    if "FDP" in info and "FAO" in info:
+        return fao_fdp_dad
+    
+    if "DP" in info and "AO" in info:
+        return ao_dp_dad
+    
+    if len(row) > FORMAT + 1:
+        fmt = formatdict(row)
         
-        for self.key1, self.key2, algorithm in (("FRO", "FAO", self.ro_ao_depth), ("RO", "AO", self.ro_ao_depth), ("FDP", "FAO", self.dp_ao_depth), ("DP", "AO", self.dp_ao_depth)):
-            if self.key1 in infodict and self.key2 in infodict:
-                return algorithm
+        # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
+        # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
+        if "," in fmt.get("AD", ()): # Will fail with multiple variants on same line
+            return ad_dad
+    
+        if "AD" in fmt and "RD" in fmt:
+            return ad_rd_dad
         
-        if len(row) > self._format_values: # has a format section
-            formatdict = dict(zip(row[8].split(":"), row[self._format_values].split(":")))
-            
-            # In illumina vcfs AD stands for allelic depths and contains a comma separated list of ref and all alt depths.
-            # In some other vcfs AD stands for alt depth and contains the depth of the alt read only with RD containing the ref depth!!!!!!
-            if len(row[4].split(",")) + 1 == len(formatdict.get("AD", "").split(",")): # must have depth for ref and each alt.
-                return self.ad_depth
-            
-            if "AD" in formatdict and "RD" in formatdict:
-                return self.ad_rd_depth
-            
-            if "DP4" in formatdict:
-                return self.dp4_format_depth
-            
-        if "DP4" in infodict:
-            return self.dp4_info_depth
+        if "DP4" in fmt:
+            return dp4_format_dad
         
-        if len(row) > self._format_values:
-            if all(key in formatdict for key in ["GU", "CU", "AU", "TU"]) or all(key in formatdict for key in ["TAR", "TIR"]):
-                return self.strelka_depth
+        if all(key in fmt for key in ("GU", "CU", "AU", "TU")):
+            return strelka_dad
             
-        return self.no_depth
+        if "TAR" in fmt and "TIR" in fmt:
+            return tar_tir_dad
+        
+    if "DP4" in info:
+        return dp4_info_dad
+        
+    return no_dad
             
     
-    def ro_ao_depth(self, row):
-        info = dict(kv.split("=") for kv in row[7].split(";") if "=" in kv)
-        ref_depth = int(info[self.key1])
-        alt_depths =  [int(d) for d in info[self.key2].split(",")]
-        return (ref_depth + sum(alt_depths), alt_depths)
-
-
-    def dp_ao_depth(self, row):
-        info = dict(kv for kv in row[7] if len(kv) == 2)
-        tot_depth = int(info[self.key1])
-        alt_depths =  [int(d) for d in info[self.altkey].split(",")]
-        return (tot_depth, alt_depths)
-
-
-    def ad_depth(self, row):
-        ad = [int(depth) for depth in row[self._format_values].split(":")[row[8].split(":").index("AD")].split(",")]
-        return (sum(ad), ad[1:])
-
-
-    def ad_rd_depth(self, row):
-        keys = row[8].split(":")
-        vals = row[self._format_values].split(":")
-        ad = int(vals[keys.index("AD")])
-        return (ad + int(vals[keys.index("RD")]), [ad])
-
-
-    def dp4_info_depth(self, row):
-        dp4 = [int(depth) for depth in row[7].split("DP4=")[1].split(";")[0].split(",")]
-        return (sum(dp4), [dp4[2] + dp4[3]])
-
-
-    def dp4_format_depth(self, row):
-        dp4 = [int(depth) for depth in dict(zip(row[8].split(":"), row[self._format_values].split(":")))["DP4"].split(",")]
-        return (sum(dp4), [dp4[2] + dp4[3]])
-        
-
-    def strelka_depth(self, row):
-        # https://github.com/Illumina/strelka/blob/v2.9.x/docs/userGuide/README.md#somatic
-        formatdict = dict(zip(row[8].split(":"), row[self._format_values].split(":")))
-        alt = row[4]
-        if "," in alt:
-            raise RuntimeError("Multiple variants per row in strelka vcf.")
-        if "CU" in formatdict:
-            depth = sum(int(formatdict[key].split(",")[0]) for key in ("AU", "TU", "CU", "GU"))
-            alt_depth = int(formatdict[f"{alt}U"].split(",")[0])
-        else:
-            alt_depth = int(formatdict["TIR"].split(",")[0])
-            depth = int(formatdict["TAR"].split(",")[0]) + alt_depth
-        return (depth, [alt_depth])
-    
-
-    def no_depth(self, row):
-        return (1, [1])
-
-
-
