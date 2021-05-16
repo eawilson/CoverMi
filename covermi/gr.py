@@ -819,7 +819,7 @@ def ad_dad(row):
 def ad_rd_dad(row):
     fmt = formatdict(row)
     ad = int(fmt["AD"])
-    return (int("RD") + ad, ad)
+    return (int(fmt["RD"]) + ad, ad)
 
 
 
