@@ -432,14 +432,17 @@ def bed(paths):
         pass
 
     for path in paths:
-        with gzopen(path, "rt") as f:
-            for row in csv.reader(f, delimiter="\t"):
-                row[1] = int(row[1]) + 1
-                row[2] = int(row[2])
-                if len(row) < 6:
-                    yield Entry(*row)
-                else:
-                    yield Entry(*row[:5])
+        with gzopen(path, "rt") as f_in:
+            for row in f_in:
+                row = row.strip()
+                if row:
+                    row = row.split("/t")
+                    row[1] = int(row[1]) + 1
+                    row[2] = int(row[2])
+                    if len(row) < 6:
+                        yield Entry(*row)
+                    else:
+                        yield Entry(*row[:5])
 
 
 
