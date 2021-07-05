@@ -436,13 +436,13 @@ def bed(paths):
             for row in f_in:
                 row = row.strip()
                 if row:
-                    row = row.split("/t")
+                    row = row.split("\t")
                     row[1] = int(row[1]) + 1
                     row[2] = int(row[2])
-                    if len(row) < 6:
+                    if len(row) < 5:
                         yield Entry(*row)
                     else:
-                        yield Entry(*row[:5])
+                        yield Entry(*row[:4])
 
 
 
@@ -459,7 +459,7 @@ def appris(paths):
         for path in paths:
             with gzopen(path, "rt") as f:
                 for row in f:
-                    row = row.split()
+                    row = row.split("\t")
                     score[row[2].split(".")[0]] = row[4].startswith("PRINCIPAL") + 1
     return score
 
