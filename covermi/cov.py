@@ -185,7 +185,7 @@ class Bam(object):
             self.bam = BufferedReader(gzip.open(path, "rb"))
             if self.bam.read(4) != b"BAM\1":
                 self.bam.close()
-                raise RuntimeError(f"{patj} is not a BAM file!")
+                raise RuntimeError(f"{path} is not a BAM file!")
             
             len_header_text = struct.unpack("<i", self.bam.read(4))[0]
             header_text = self.bam.read(len_header_text)
