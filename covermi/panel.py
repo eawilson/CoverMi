@@ -17,135 +17,154 @@ import os
 import re
 import pdb
 import gzip
-from itertools import chain
+from collections import UserDict
+from functools import partial
 
-from .gr import Gr, bed, gff3
+from .gr import Gr, bed, gff3, cosmic, gzopen
 
-
-
-def gzopen(fn, *args, **kwargs):
-    return (gzip.open if fn.endswith(".gz") else open)(fn, *args, **kwargs)
+__all__ = ("Panel",)
 
 
 
-REFSEQ_TRANSCRIPT = r"[NX][MR]_[0-9]+(\.[0-9])?"
-ENSEMBL_TRANSCRIPT = r"ENST[0-9]{11}"
-GENE_SYMBOL = r"[A-Z][A-Zorf0-9-\.]+"
+REFSEQ_TRANSCRIPT = r"[NX][MR]_[0-9]+(\.[0-9]+)?"
+ENSEMBL_TRANSCRIPT = r"ENST[0-9]{11}(\.[0-9]+)?"
+GENE_SYMBOL = r"[A-Z][A-Z0-9orf_#@-]+"
 
-#Eleven columns - refflat
-REGEXPS = (("reference", re.compile("##gff-version 3")),
-           ("reference", re.compile("chr[0-9a-zA-Z]+\t.+\t.+\t[0-9]+\t[0-9]+\t.+\t[+-\\.]+\t.+\t[^\t]+$")), # gff file
-           ("targets",   re.compile("chr[0-9a-zA-Z]+\t[0-9]+\t[0-9]+")), # Bedfile
-           ("principal", re.compile(f"{GENE_SYMBOL}\t[0-9]+\t{REFSEQ_TRANSCRIPT}.+\t(PRINCIPAL|ALTERNATIVE):")),
-           ("principal", re.compile(f"{GENE_SYMBOL}\tENSG[0-9]+\t{ENSEMBL_TRANSCRIPT}.+\t(PRINCIPAL|ALTERNATIVE):")),
-           ("names",     re.compile(f"{GENE_SYMBOL}$")), #Single column
-           ("names",     re.compile(f"{GENE_SYMBOL}( {REFSEQ_TRANSCRIPT})+$")), #Single column
-           ("names",     re.compile(f"{GENE_SYMBOL}( {ENSEMBL_TRANSCRIPT})+$")), #Single column
+GFF = "##gff-version 3"
+BED = "chr[0-9a-zA-Z]+\t[0-9]+\t[0-9]+"
+APPRIS_REFSEQ = f"{GENE_SYMBOL}\t[0-9]+\t{REFSEQ_TRANSCRIPT}.+\t(PRINCIPAL|ALTERNATIVE):"
+APPRIS_ENSEMBL = f"{GENE_SYMBOL}\tENSG[0-9]+\t{ENSEMBL_TRANSCRIPT}.+\t(PRINCIPAL|ALTERNATIVE):"
+COSMIC = "Gene name\tAccession Number\t"
+GENE = f"{GENE_SYMBOL} *$"
+GENE_REFSEQ_TRANSCRIPT = f"{GENE_SYMBOL} +{REFSEQ_TRANSCRIPT}[^\t]*$"
+GENE_ENSEMBL_TRANSCRIPT = f"{GENE_SYMBOL} +{ENSEMBL_TRANSCRIPT}[^\t]*$"
+
+
+
+REGEXPS = (("reference", re.compile(GFF)),
+           ("amplicons",   re.compile(BED)),
+           ("principal", re.compile(f"{APPRIS_REFSEQ}|{APPRIS_ENSEMBL}")),
+           ("names",     re.compile(f"{GENE}|{GENE_REFSEQ_TRANSCRIPT}|{GENE_ENSEMBL_TRANSCRIPT}")),
+           ("variants",  re.compile(COSMIC)),
           )
 
 
 
-class Panel(object):
-    def __init__(self, panel_path):
-        self._data = {}
-        self.path = panel_path
-        self.paths = {}
-        for fn in os.listdir(panel_path):
-            path = os.path.join(panel_path, fn)
-            if os.path.isfile(path):
-                matchedfiletype = ""
-                with gzopen(path, "rt") as f:
-                    try:
-                        for testrow in f.read(1000).splitlines()[:2]: # Don't get screwed by really big binary files
-                            testrow = testrow.strip()
-                            for filetype, regexp in REGEXPS:
-                                if regexp.match(testrow):
-                                    if not matchedfiletype:
-                                        try:
-                                            self.paths[filetype].append(os.path.abspath(path))
-                                        except KeyError:
-                                            self.paths[filetype] = [os.path.abspath(path)]
-                                    elif filetype != matchedfiletype:
-                                        raise RuntimeError(f"file {fn} matches both {filetype} and {matchedfiletype} formats")
-                                    matchedfiletype = filetype                                    
-                    except UnicodeDecodeError:
-                        pass
-                    
-        if not self.paths:
-            raise RuntimeError("panel {} is empty".format(os.path.basename(panel_path)))
-    
-    
-    def __repr__(self):
-        return "{}({})".format(type(self).__name__, repr(self.path))
+def identify(path):
+    with gzopen(path, "rt") as f_in:
+        try:
+                # Don't get screwed by really big binary files
+            contents = f_in.read(1000).splitlines()[:2]
+        except UnicodeDecodeError:
+            return []
+    return [filetype for filetype, regexp in REGEXPS if any(regexp.match(row) for row in contents)]
 
-    
-    def __getattr__(self, key):
-        try:
-            return self[key]
-        except KeyError:
-            raise AttributeError("'{}' object has no attribute '{}'".format(type(self).__name__, key))
-    
-    
-    def __getitem__(self, key):
-        try:
-            return self._data[key]
-        except KeyError as e:
-            pass
+
+
+class Panel(UserDict):    
+    def __init__(self, *paths):
+        super().__init__()
+        
+        self.paths = {}
+        
+        for path in paths:
+            if os.path.isfile(path):
+                self.add(path)
+            elif os.path.isdir(path):
+                for fn in os.listdir(path):
+                    file_path = os.path.join(path, fn)
+                    if os.path.isfile(file_path):
+                        self.add(file_path)
+
+
+    def add(self, path):
+        filetypes = identify(path)
+        
+        if len(filetypes) == 1:
+            filetype = filetypes.pop()
+            self.paths[filetype] = os.path.abspath(path)
+            self.clear()
+            return filetype
+        
+        elif len(filetypes) > 1:
+            raise RuntimeError(f"panel file {path} matches multiple file types")
+
+
+    def __repr__(self):
+        return "{}({})".format(type(self).__name__, ", ".join(sorted(self.paths.values())))
+
+
+    def __missing__(self, key):
+        val = None
         
         if key == "names":
-            val = set()
-            for path in self.paths.get("names", ()):
-                with open(path) as f:
-                    for row in f:
-                        name = row.strip()
-                        if name:
-                            val.add(name)
-            if not val:
-                sep = re.compile("[,;]")
-                for target in self.targets:
-                    for name in sep.split(target.name):
-                        val.add(name.strip())
+            if "names" in self.paths:
+                with open(self.paths["names"]) as f_in:
+                    val = set(row.strip() for row in f_in if row.strip())
+            
+            elif "amplicons" in self:
+                val = set(entry.name for entry in self["amplicons"])
+        
+        elif key == "amplicons":
+            if "amplicons" in self.paths:
+                val = Gr(bed(self.paths["amplicons"]))
         
         elif key == "targets":
-            if "targets" in self.paths:
-                val = Gr(bed(self.paths["targets"]))
-            else:
-                val = self.exons
+            if "amplicons" in self:
+                val = self["amplicons"]
+            elif "exons" in self:
+                val = self["exons"]
         
-        elif key in ("transcripts", "codingregions", "exons", "codingexons"):
-            val = Gr(gff3(self.paths["reference"], key, names=self["names"], principal=self.paths.get("principal", "")))
+        elif key == "variants":
+            if "variants" in self.paths:
+                val = Gr(cosmic(self.paths["variants"]))
         
         else:
+            all_genes = False
+            if key.startswith("all"):
+                all_genes = True
+                key = key[3:]
+            if key in ("transcripts", "codingregions", "exons", "codingexons"):
+                if "reference" in self.paths and "names" in self:
+                    val = Gr(gff3(self.paths["reference"], key, names=self["names"] if not all_genes else None, principal=self.paths.get("principal")))
+        
+        if val is None:
             raise KeyError(key)
-
-        self._data[key] = val
+        
+        self[key] = val
         return val
     
     
     def __contains__(self, key):
         if key == "names":
-            return "names" in self.paths or "targets" in self.paths
+            return "names" in self.paths or "amplicons" in self
+        
+        elif key == "amplicons":
+            return "amplicons" in self.paths
         
         elif key == "targets":
-            return "targets" in self.paths or ("names" in self.paths and "reference" in self.paths)
+            return "amplicons" in self or "exons" in self
         
-        elif key in ("transcripts", "codingregions", "exons", "codingexons"):
+        elif key == "variants":
+            return "variants" in self.paths
+        
+        elif key in ("transcripts", "codingregions", "exons", "codingexons", "alltranscripts", "allcodingregions", "allexons", "allcodingexons"):
             return "reference" in self.paths and "names" in self
-
-
-    def get(self, key, *args):
-        num_args = len(args) + 1
-        if num_args > 2:
-            raise TypeError(f"get expected at most 2 arguments, got {num_args}")
-        elif num_args == 2:
-            default = args[0]
-        else:
-            default = none
         
-        try:
-            return self[key]
-        except KeyError:
-            return default
+        return False
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

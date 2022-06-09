@@ -7,9 +7,11 @@ from itertools import islice, chain
 from collections import defaultdict
 import collections.abc
 from copy import copy
+from sys import intern
+from numbers import Integral
 
 
-__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "depth_alt_depth_function", "chromosome_order"]
+__all__ = ["Entry", "Gr", "Variant", "bed", "appris", "gff3", "vcf", "depth_alt_depth_function", "chromosome_order", "gzopen"]
 
 
 
@@ -17,7 +19,32 @@ nucleotide = {"A": "R", "G": "R", "C": "Y", "T": "Y"}# puRine: A, G,  pYrimadine
 
 ENSEMBL_REFSEQ_PREFIXES = set(["ENS", "NM_", "NR_", "XM_", "XR_"])
 
-standard_chrom = {"1": "chr1",
+standard_chrom = {1: "chr1",
+                  2: "chr2",
+                  3: "chr3",
+                  4: "chr4",
+                  5: "chr5",
+                  6: "chr6",
+                  7: "chr7",
+                  8: "chr8",
+                  9: "chr9",
+                  10: "chr10",
+                  11: "chr11",
+                  12: "chr12",
+                  13: "chr13",
+                  14: "chr14",
+                  15: "chr15",
+                  16: "chr16",
+                  17: "chr17",
+                  18: "chr18",
+                  19: "chr19",
+                  20: "chr20",
+                  21: "chr21",
+                  22: "chr22",
+                  23: "chrX",
+                  24: "chrY",
+                  25: "chrM",
+                  "1": "chr1",
                   "2": "chr2",
                   "3": "chr3",
                   "4": "chr4",
@@ -82,6 +109,12 @@ standard_chrom = {"1": "chr1",
 
 
 
+class AnnotatedString(str):
+    __slots__ = ("transcript", "site", "histology", "cds")
+    pass
+
+
+
 def chromosome_order(key):
     if key.startswith("chr"):
         key = key[3:]
@@ -94,15 +127,29 @@ def gzopen(fn, *args, **kwargs):
 
 
 
+def iterpath(paths):
+    try:
+        return (os.fspath(paths),)
+    except TypeError:
+        return paths or ()
+
+
+
 class Entry(object):
     __slots___ = ("chrom", "start", "stop", "name", "strand")
 
     def __init__(self, chrom, start, stop, name=".", strand="."):
-        self.chrom = standard_chrom.get(chrom, chrom)
+        self.chrom = standard_chrom.get(chrom, intern(chrom))
+        if not isinstance(start, Integral):
+            raise TypeError("Entry: start must be an integer")
         self.start = start
+        if not isinstance(stop, Integral):
+            raise TypeError("Entry: stop must be an integer")
         self.stop = stop
         self.name = name
-        self.strand = strand
+        if strand not in ("+", "-", "."):
+            raise ValueError("Entry: strand must be equal to '+', '-' or '.'")
+        self.strand = intern(strand)
 
     def __repr__(self):
         return "{}({}, {}, {}, {}, {})".format(type(self).__name__, repr(self.chrom), repr(self.start), repr(self.stop), repr(self.name), repr(self.strand))
@@ -425,40 +472,29 @@ class Gr(collections.abc.Mapping):
 
 
 def bed(paths):
-    
-    try:
-        paths = (os.fspath(paths),)
-    except TypeError:
-        pass
-
-    for path in paths:
+    for path in iterpath(paths):
         with gzopen(path, "rt") as f_in:
             for row in f_in:
                 row = row.strip()
                 if row:
                     row = row.split("\t")
-                    row[1] = int(row[1]) + 1
-                    row[2] = int(row[2])
-                    if len(row) < 5:
-                        yield Entry(*row)
+                    if len(row) < 4:
+                        yield Entry(row[0], int(row[1]) + 1, int(row[2]))
+                    elif len(row) < 6: 
+                        yield Entry(row[0], int(row[1]) + 1, int(row[2]), row[3])
                     else:
-                        yield Entry(*row[:4])
+                        yield Entry(row[0], int(row[1]) + 1, int(row[2]), row[3], row[5])
 
 
 
 def appris(paths):
     # returns 2 if principal transcript, 1 if alternative
     score = {}
-    
-    if paths:
-        try:
-            paths = (os.fspath(paths),)
-        except TypeError:
-            pass
-
-        for path in paths:
-            with gzopen(path, "rt") as f:
-                for row in f:
+    for path in iterpath(paths):
+        with gzopen(path, "rt") as f:
+            for row in f:
+                row = row.strip()
+                if row:
                     row = row.split("\t")
                     score[row[2].split(".")[0]] = row[4].startswith("PRINCIPAL") + 1
     return score
@@ -470,10 +506,15 @@ def bases(components):
 
 
 
-def cannonical(elements):
-    return (bases(elements.get("CDS", ())), 
-            bases(elements.get("exon", ())), 
-            bases(elements.get("transcript", ())))
+REFSEQ = {"NM": 4, "NR": 3, "XM": 2, "XR": 1}
+DELETE_NON_DIGIT = str.maketrans("", "", "ABCDEFGHIJKLMNOPQRSTUVWXYZorf_")
+
+def cannonical(transcript_name, elements):
+    return (REFSEQ.get(transcript_name[:2], 0),
+            bases(elements.get("CDS", ())),
+            bases(elements.get("exon", ())),
+            bases(elements.get("transcript", ())),
+            -int(transcript_name.translate(DELETE_NON_DIGIT)))
 
 
 
@@ -487,119 +528,33 @@ STRAND = 6
 PHASE = 7
 ATTRIBUTES = 8
 
-#def gff3(path, what, names=(), principal=""):
-    
-    #if what not in ("transcripts", "exons", "codingregions", "codingexons"):
-        #raise ValueError(f"Invalid value for what: {what}")
-    
-    #what = what[:-1]
-    #codingregion = what == "codingregion"
-    #if what == "codingexon":
-        #what = "CDS"
-    
-    #needed = defaultdict(list)
-    #for name in names:
-        #splitname = name.split()
-        #if splitname:
-            #needed[splitname[0]].extend(splitname[1:])
-    
-    #score = appris(principal)    
-    #matches = defaultdict(lambda:defaultdict(lambda:defaultdict(list)))
-    
-    #with gzopen(path, "rt") as f_in:
-        #match = False
-        #reader = csv.reader(f_in, delimiter="\t")
-        #for row in reader:
-            #if row[0].startswith("#"):
-                #continue
-            
-            #if match:
-                #if ";Parent=" in row[ATTRIBUTES]:
-                    #feature = row[TYPE]
-                    #if feature.endswith("transcript") or feature.endswith("RNA"):
-                        #try:
-                            #stop = row[ATTRIBUTES].index(";")
-                        #except ValueError:
-                            #stop = len(row[ATTRIBUTES])
-                        #transcript = row[ATTRIBUTES][3:stop].split(".")[0]
-                        #feature = "transcript"
-                    
-                    #entry = Entry(chrom, int(row[START]), int(row[END]), gene, strand)
-                    #matches[gene][transcript][feature].append(entry)
-                    #continue
-                #match = False
-        
-            #if row[TYPE] == "gene":
-                #try:
-                    #start = row[ATTRIBUTES].index(gene_name)
-                #except NameError:
-                    #if "gene_name=" in row[ATTRIBUTES]:
-                        #gene_name = "gene_name="
-                    #elif "Name=" in row[ATTRIBUTES]:
-                        #gene_name = "Name="
-                    #else:
-                        #raise ValueError("Gene name not found in attributes")
-                    #start = row[ATTRIBUTES].index(gene_name)
-                        
-                #start += len(gene_name)
-                #try:
-                    #stop = row[ATTRIBUTES].index(";", start)
-                #except ValueError:
-                    #stop = len(row[ATTRIBUTES])
-                #gene = row[ATTRIBUTES][start:stop]
-                #if not names or gene in needed:
-                    #chrom = row[SEQID].split(".")[0]
-                    #chrom = standard_chrom.get(chrom)
-                    #if chrom: # Remove patches
-                        #strand = row[STRAND]
-                        #match = True
-    
-    
-    #for gene in sorted(set(needed) - set(matches)):
-        #print(f"WARNING: {gene} not found in reference file", file=sys.stderr)
-    
-    #for gene, transcripts in sorted(matches.items()):
-        #selected = needed[gene]
-        #if not selected:
-            #if len(transcripts) == 1:
-                #selected = transcripts.keys()
-            #else:
-                #scored = ([], [])
-                #for transcript in transcripts:
-                    #try:
-                        #scored[score[transcript] - 1].append(transcript)
-                    #except KeyError:
-                        #pass
+
+
+def cosmic(paths):
+    for path in iterpath(paths):
+        with gzopen(path, "rt") as f_in:
+            reader = csv.DictReader(f_in, delimiter="\t")
+            for row in reader:
+                gene = AnnotatedString(intern(row["Gene name"]))
+                if "_" in gene:
+                    gene = AnnotatedString(gene.split("_")[0])
                 
-                #candidates = scored[1] or scored[0] or transcripts
-                #if len(candidates) == 1:
-                    #selected = candidates
-                #else:
-                    #selected = sorted(candidates, key=lambda t:cannonical(transcripts[t]))[-1:]
-        
-        #for transcript in selected:
-            #try:
-                #features = transcripts[transcript]
-            #except KeyError:
-                #print(f"WARNING: {transcript} not found in reference file", file=sys.stderr)
-                #continue
-            
-            #if codingregion:
-                #first = features["CDS"][0]
-                #last = features["CDS"][-1]
-                #start = min(first.start, last.start)
-                #stop = max(first.stop, last.stop)
-                #features["codingregion"] = (Entry(first.chrom, start, stop, first.name, first.strand),)
-            
-            #for entry in features[what]:
-                #if len(selected) > 1:
-                    #entry.name = f"{entry.name} {transcript}"
-                #yield entry
+                gene.transcript = intern(row["Accession Number"].split(".")[0])
+                gene.site = intern(row["Primary site"])
+                gene.histology = intern(row["Primary histology"])
+                gene.cds = row["Mutation CDS"]
+                
+                position = row["Mutation genome position"]
+                try:
+                    chrom, coordinates = position.split(":")
+                    start, stop = coordinates.split("-")
+                except ValueError:
+                    continue # If no position then ignore
+                yield(Entry(chrom, int(start), int(stop), gene, row["Mutation strand"]))
 
 
 
-def gff3(paths, what, names=(), principal=()):
-    
+def gff3(paths, what, names=None, principal=None, all_transcripts=False):
     if what not in ("transcripts", "exons", "codingregions", "codingexons"):
         raise ValueError(f"Invalid value for what: {what}")
     
@@ -608,13 +563,8 @@ def gff3(paths, what, names=(), principal=()):
     if what in ("codingregion", "codingexon"):
         what = "CDS"
     
-    try:
-        paths = (os.fspath(paths),)
-    except TypeError:
-        pass
-    
     needed = defaultdict(list)
-    for name in names:
+    for name in names or ():
         splitname = name.split()
         if splitname:
             needed[splitname[0]].extend(splitname[1:])
@@ -623,7 +573,7 @@ def gff3(paths, what, names=(), principal=()):
     matches = defaultdict(lambda:defaultdict(lambda:defaultdict(list)))
     
     gene_name = ""
-    for path in paths:
+    for path in iterpath(paths):
         del gene_name
         
         # These 3 variabls are used for weeding out refseq duplicate genes
@@ -651,7 +601,7 @@ def gff3(paths, what, names=(), principal=()):
                     except NameError:
                         if "gene_name=" in attributes:
                             gene_name = "gene_name="
-                        elif "Name=" in attributes:
+                        elif "gene=" in attributes:
                             gene_name = "gene="
                         else:
                             raise ValueError("Gene name not found in transcript attributes")
@@ -699,7 +649,18 @@ def gff3(paths, what, names=(), principal=()):
                             print(f"Excluding duplicate gene {ident}", file=sys.stderr)
                                                 
                 if transcript and feature in ("transcript", "exon", "CDS"):
-                    entry = Entry(chrom, int(row[START]), int(row[END]), gene, strand)
+                    name = intern(f"{gene} {transcript}")
+                    #if feature == "exon":
+                        #name = AnnotatedString(name)
+                        #attributes = row[ATTRIBUTES]
+                        #start = attributes.index("exon_number=") + 12
+                        #try:
+                            #stop = attributes.index(";", start)
+                        #except ValueError:
+                            #stop = len(attributes)
+                        #exon_number = attributes[start:stop]
+                        #name.exon = exon_number
+                    entry = Entry(chrom, int(row[START]), int(row[END]), name, strand)
                     matches[gene][transcript][feature].append(entry)
     
     for gene in sorted(set(needed) - set(matches)):
@@ -708,21 +669,18 @@ def gff3(paths, what, names=(), principal=()):
     for gene, transcripts in sorted(matches.items()):
         selected = needed[gene]
         if not selected:
-            if len(transcripts) == 1:
+            if len(transcripts) == 1 or all_transcripts:
                 selected = transcripts.keys()
             else:
-                scored = ([], [])
+                scored = ([], [], []) # unrecognised, alternative, principal
                 for transcript in transcripts:
-                    try:
-                        scored[score[transcript] - 1].append(transcript)
-                    except KeyError:
-                        pass
+                    scored[score.get(transcript, 0)].append(transcript)
                 
-                candidates = scored[1] or scored[0] or transcripts
+                candidates = scored[2] or scored[1] or scored[0]
                 if len(candidates) == 1:
                     selected = candidates
                 else:
-                    selected = sorted(candidates, key=lambda t:cannonical(transcripts[t]))[-1:]
+                    selected = sorted(candidates, key=lambda t:cannonical(t, transcripts[t]))[-1:]
         
         for transcript in selected:
             if transcript not in transcripts:
@@ -740,10 +698,7 @@ def gff3(paths, what, names=(), principal=()):
                             first.strand)
 
             else:
-                for entry in features.get(what, ()):
-                    if len(selected) > 1:
-                        entry.name = f"{entry.name} {transcript}"
-                    yield entry
+                yield from features.get(what, ())
 
 
 CHROM = 0
@@ -757,14 +712,8 @@ INFO = 7
 FORMAT = 8
 
 def vcf(paths, name="."):
-    
-    try:
-        paths = (os.fspath(paths),)
-    except TypeError:
-        pass
-
     depth_alt_depth = None
-    for path in paths:
+    for path in iterpath(paths):
         del depth_alt_depth
         with open(path, "rt") as f:
             for row in f:
@@ -935,5 +884,3 @@ def depth_alt_depth_function(row):
         return dp4_info_dad
         
     return no_dad
-            
-    

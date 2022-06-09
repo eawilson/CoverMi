@@ -30,15 +30,34 @@ def zero_coverage():
 
 
 
+def multiply(gr, n):
+    for entry in gr:
+        for i in range(n):
+            yield entry
+
+
+
+def perfect_coverage(gr, n=1000):
+    return Cov(reads=multiply(gr, n))
+
+
+
 class Cov(collections.abc.Mapping):
-    def __init__(self, path):
+    def __init__(self, path=None, reads=None):
         chrom_depths = defaultdict(Counter)
-        with Bam(path) as bam:
-            for row in bam.coverage(): # Is zero/one based counting correct here
-                depths = chrom_depths[row[0]]
-                depths[row[1]] += 1
-                depths[row[2]+1] -= 1
-                        
+        
+        if path:
+            with Bam(path) as bam:
+                for row in bam.coverage(): # Is zero/one based counting correct here
+                    depths = chrom_depths[row[0]]
+                    depths[row[1]] += 1
+                    depths[row[2]+1] -= 1
+        
+        for entry in (reads or ()): # Is zero/one based counting correct here
+            depths = chrom_depths[entry.chrom]
+            depths[entry.start] += 1
+            depths[entry.stop+1] -= 1
+            
         self._data = defaultdict(zero_coverage)
         for chrom, depths in chrom_depths.items():
             start = 0
