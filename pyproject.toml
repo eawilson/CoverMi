@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "covermi"
+version = "6.1.0"
+authors = [
+    {name = "Ed Wilson", email = "edwardadrianwilson@yahoo.co.uk"},
+    ]
+dependencies = [
+  "matplotlib"
+  ]
+[project.scripts]
+covermi = "covermi:cmdline.cmdline"
+
