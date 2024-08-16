@@ -46,7 +46,7 @@ def cmdline():
 
     cov = Cov(args.bam)
 
-    Plot(coverage=cov, panel=panel, depth=depth, title=name, output=output+".pdf")
+    Plot(coverage=cov, panel=panel, title=name, output=output+".pdf")
 
     stats = {"coverage": {},
              "coverage_by_gene": defaultdict(dict)}
