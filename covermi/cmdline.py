@@ -38,9 +38,9 @@ def cmdline():
 
     panel = Panel(args.panel)
     if "targets" in panel:
-        roi = panel.targets
+        roi = panel["targets"]
     elif "exons" in panel:
-        roi = panel.exons
+        roi = panel["exons"]
     else:
         sys.exit("Invalid panel. Unable to work out region over which to calculate coverage")
 
