@@ -36,7 +36,7 @@ def cmdline():
     else:
         depth = None
 
-    panel = Panel(args.pane)
+    panel = Panel(args.panel)
     if "targets" in panel:
         roi = panel.targets
     elif "exons" in panel:
